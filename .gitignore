@@ -1,0 +1,33 @@
+build/
+
+.claude/settings.local.json
+
+# Quickshell generates qmldir files in source module dirs at runtime
+qmldir
+
+# Editor/agent tooling artifacts: zero-byte masks over shell startup files
+/.bash_profile
+/.bashrc
+/.profile
+/.zprofile
+/.zshrc
+/.gitconfig
+/.ripgreprc
+/.idea
+/.vscode
+/.mcp.json
+
+# Claude Code harness-managed paths (device-node masks / per-session state)
+/.claude/agents
+/.claude/hooks
+/.claude/skills
+/.claude/workflows
+/.claude/routines
+/.claude/launch.json
+/.claude/scheduled_tasks.json
+
+# Superpowers brainstorm scratch (ephemeral HTML previews + server logs)
+/.superpowers/
+
+# Personal notes for Claude Code (never public)
+CLAUDE.local.md

@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make test)",
+      "Bash(make test:*)",
+      "Bash(make lint)",
+      "Bash(make lint-file:*)",
+      "Bash(make plugin)",
+      "Bash(qmllint:*)",
+      "Bash(qmltestrunner:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git branch:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git push:*)",
+      "Bash(gh issue:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh label:*)",
+      "Bash(gh search:*)",
+      "Bash(upower:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f; case \"$f\" in *.qml) cd \"$CLAUDE_PROJECT_DIR\" && out=$(make -s lint-file FILE=\"$f\" 2>&1) || { printf '%s\\n' \"$out\" >&2; exit 2; } ;; esac; }",
+            "timeout": 30,
+            "statusMessage": "qmllint"
+          }
+        ]
+      }
+    ]
+  }
+}

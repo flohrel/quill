@@ -1,0 +1,61 @@
+# quill CI — modest on purpose: lint, tests, shellcheck, plugin build.
+# Runs in a rolling Arch container so Qt6 stays close to a rolling desktop;
+# minor Qt version skew vs a developer's machine is acceptable for these tests.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    container: archlinux:base
+    steps:
+      # git must be present BEFORE checkout, or checkout falls back to a
+      # tarball download and `git ls-files` (used by make lint) breaks.
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm --needed git make which qt6-declarative shellcheck jq
+
+      - uses: actions/checkout@v4
+
+      - name: Mark workspace safe for git-in-container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Lint QML
+        run: make lint
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Run test suites
+        run: make test
+        env:
+          QT_QPA_PLATFORM: offscreen
+
+      - name: Shellcheck launch scripts
+        run: shellcheck quill-launch.sh quill-test.sh
+
+  build-plugin:
+    # Doubles as the "can a stranger build this" smoke test.
+    runs-on: ubuntu-latest
+    container: archlinux:base
+    steps:
+      - name: Install dependencies
+        # Extend this list if qml-niri's CMake reports missing packages on
+        # the first run — that error message is the README's dependency list.
+        run: pacman -Syu --noconfirm --needed git base-devel cmake qt6-base qt6-declarative
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Mark workspace safe for git-in-container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build vendored qml-niri plugin
+        run: make plugin
