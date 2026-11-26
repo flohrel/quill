@@ -8,7 +8,8 @@ import "../../services/audiodevices.js" as AD
 // (or input); the default is highlighted and tagged. Clicking a row emits
 // picked(name). `devices` is an AudioService.outputs/inputs array. A port
 // that can't be used right now (available: false, e.g. a jack mic with
-// nothing plugged in) is dimmed and can't be picked.
+// nothing plugged in) shows a dim label and an "unplugged" tag, no hover,
+// an arrow cursor, and can't be picked.
 Rectangle {
     id: list
     property var devices: []
@@ -53,7 +54,6 @@ Rectangle {
                 width: col.width
                 height: 30
                 radius: 8
-                opacity: row.dev.available ? 1 : 0.4
                 color: row.dev.isDefault ? Theme.surfaceAlt
                      : (mouse.containsMouse && row.dev.available ? Theme.surface : "transparent")
 
@@ -64,7 +64,7 @@ Rectangle {
                     width: 16; horizontalAlignment: Text.AlignHCenter
                     text: row.dev.glyph
                     font.family: "Symbols Nerd Font"; font.pixelSize: 12
-                    color: Theme.foreground
+                    color: row.dev.available ? Theme.foreground : Theme.foregroundDim
                 }
                 Text {
                     anchors.left: ic.right; anchors.leftMargin: 8
@@ -74,31 +74,35 @@ Rectangle {
                     text: row.dev.label
                     elide: Text.ElideRight
                     font.pixelSize: 12
-                    color: Theme.foreground
+                    color: row.dev.available ? Theme.foreground : Theme.foregroundDim
                 }
+                // "default" (filled) or "unplugged" (outlined); default wins.
                 Rectangle {
                     id: tag
-                    visible: row.dev.isDefault
+                    visible: row.dev.isDefault || !row.dev.available
                     anchors.right: parent.right; anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
                     width: tagText.implicitWidth + 10; height: 16
                     radius: 4
-                    color: Theme.accent
+                    color: row.dev.isDefault ? Theme.accent : "transparent"
+                    border.width: row.dev.isDefault ? 0 : 1
+                    border.color: Theme.border
                     Text {
                         id: tagText
                         anchors.centerIn: parent
-                        text: "default"
+                        text: row.dev.isDefault ? "default" : "unplugged"
                         font.pixelSize: 10
-                        color: Theme.background
+                        color: row.dev.isDefault ? Theme.background : Theme.foregroundDim
                     }
                 }
                 MouseArea {
                     id: mouse
                     anchors.fill: parent
                     hoverEnabled: true
-                    enabled: row.dev.available
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: list.picked(row.dname)
+                    // Stays enabled (a disabled MouseArea still sets its
+                    // cursor); unavailable rows get an arrow and ignore clicks.
+                    cursorShape: row.dev.available ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: if (row.dev.available) list.picked(row.dname)
                 }
             }
         }

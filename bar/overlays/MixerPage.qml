@@ -19,9 +19,13 @@ Column {
     property var expandedKeys: ({})
     // Which device list is open (#5): "" | "output" | "input".
     property string openList: ""
-    function toggleList(kind) {
-        openList = openList === kind ? "" : kind
-        if (openList !== "") AudioService.refreshAvailability()
+    function toggleList(kind) { openList = openList === kind ? "" : kind }
+    // Port availability (a jack being plugged in) can change without any
+    // node change, so re-check it every second while a list is open.
+    Timer {
+        running: page.visible && page.openList !== ""
+        interval: 1000; repeat: true; triggeredOnStart: true
+        onTriggered: AudioService.refreshAvailability()
     }
     function reset() { expandedKeys = ({}); openList = ""; list.positionViewAtBeginning() }
     function toggle(key) {
