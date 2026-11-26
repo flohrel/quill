@@ -27,6 +27,22 @@ function label(rec) {
     return rec.name
 }
 
+// Profile descriptions that only name a channel layout ("Analog Stereo"):
+// too generic to stand in for the device name.
+var GENERIC_PROFILE = /^((analog|digital) )?(stereo|mono|surround\b.*)$|^pro\b|^multichannel\b/i
+
+// Compact label for chips and rows. Built-in cards describe every port as
+// "<controller> <port>", which elides to the same prefix; when the
+// description ends with a specific port name, show just that port.
+function shortLabel(rec) {
+    var pd = rec.profileDescription
+    var d = rec.description
+    if (!_blank(pd) && !GENERIC_PROFILE.test(pd) && !_blank(d)
+            && d.length > pd.length && d.slice(-pd.length) === pd)
+        return pd
+    return label(rec)
+}
+
 var GLYPH_MIC = "\u{F036C}"
 var GLYPH_HEADPHONES = "\u{F02CB}"
 var GLYPH_BT_SPEAKER = "\u{F09A2}"
@@ -50,7 +66,7 @@ function glyph(rec) {
 function buildList(records, kind, defaultName) {
     var keep = kind === "input" ? isInput : isOutput
     return records.filter(keep).map(function (r) {
-        return { name: r.name, label: label(r), glyph: glyph(r), isDefault: r.name === defaultName }
+        return { name: r.name, label: shortLabel(r), glyph: glyph(r), isDefault: r.name === defaultName }
     }).sort(function (a, b) {
         var la = a.label.toLowerCase(), lb = b.label.toLowerCase()
         if (la !== lb) return la < lb ? -1 : 1
@@ -60,7 +76,7 @@ function buildList(records, kind, defaultName) {
 
 function chipLabel(defaultRec, kind) {
     if (!defaultRec) return kind === "input" ? "No input" : "No output"
-    return label(defaultRec)
+    return shortLabel(defaultRec)
 }
 
 function listSig(list) {

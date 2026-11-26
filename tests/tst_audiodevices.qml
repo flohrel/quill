@@ -33,6 +33,31 @@ TestCase {
         compare(AD.label(rec({ description: "  ", nick: "Nick", name: "x" })), "Nick")
         compare(AD.label(rec({ name: "alsa_output.x" })), "alsa_output.x")
     }
+    // Built-in cards describe every port as "<controller> <port>", which
+    // elides to the same prefix: show the port (profile description) instead.
+    function test_short_label_uses_port_on_builtin_card() {
+        compare(AD.shortLabel(rec({ description: "Generic HD Audio Controller Speaker",
+                                    profileDescription: "Speaker" })), "Speaker")
+        compare(AD.shortLabel(rec({ description: "Generic HD Audio Controller Digital Microphone",
+                                    profileDescription: "Digital Microphone" })), "Digital Microphone")
+    }
+    function test_short_label_keeps_name_for_generic_profiles() {
+        compare(AD.shortLabel(rec({ description: "Acme USB Audio Analog Stereo",
+                                    profileDescription: "Analog Stereo" })), "Acme USB Audio Analog Stereo")
+        compare(AD.shortLabel(rec({ description: "Acme USB Audio Mono",
+                                    profileDescription: "Mono" })), "Acme USB Audio Mono")
+    }
+    function test_short_label_without_profile() {
+        compare(AD.shortLabel(rec({ description: "BT Speaker" })), "BT Speaker")
+        compare(AD.shortLabel(rec({ description: "Speaker", profileDescription: "Speaker" })), "Speaker")
+        compare(AD.shortLabel(rec({ description: "", nick: "Nick", profileDescription: "Speaker" })), "Nick")
+    }
+    function test_chip_and_list_use_short_label() {
+        var r = rec({ mediaClass: "Audio/Sink", deviceId: "1", name: "s",
+                      description: "Generic HD Audio Controller Speaker", profileDescription: "Speaker" })
+        compare(AD.chipLabel(r, "output"), "Speaker")
+        compare(AD.buildList([r], "output", "s")[0].label, "Speaker")
+    }
     function test_glyphs() {
         compare(AD.glyph(rec({ mediaClass: "Audio/Source" })), "\u{F036C}")                         // microphone
         compare(AD.glyph(rec({ mediaClass: "Audio/Sink", iconName: "audio-headphones" })), "\u{F02CB}")

@@ -52,14 +52,17 @@ Singleton {
     function _deviceNode(name, isKind) {
         return deviceNodes.find(n => _str(n.name) === name && isKind(toRecord(n))) || null
     }
-    // No-op for a stale/unknown name or the current default.
+    // No-op for a stale/unknown name. Always writes the preferred default,
+    // even when the device is already the active one: the configured default
+    // may be an absent device WirePlumber fell back from, and an explicit
+    // pick must stop it taking over again when it reconnects.
     function setDefaultOutput(name) {
         const n = _deviceNode(name, AD.isOutput)
-        if (n && n !== sink) Pipewire.preferredDefaultAudioSink = n
+        if (n) Pipewire.preferredDefaultAudioSink = n
     }
     function setDefaultInput(name) {
         const n = _deviceNode(name, AD.isInput)
-        if (n && n !== source) Pipewire.preferredDefaultAudioSource = n
+        if (n) Pipewire.preferredDefaultAudioSource = n
     }
 
     // Setting a volume also unmutes: a drag means "I want sound" (#72).
