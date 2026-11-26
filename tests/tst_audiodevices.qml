@@ -94,6 +94,43 @@ TestCase {
         compare(AD.chipLabel(null, "input"), "No input")
         compare(AD.chipLabel(rec({ description: "USB Audio" }), "output"), "USB Audio")
     }
+    // --- Port availability (pw-dump): a node whose active route reports
+    // available "no" (jack mic with nothing plugged) is listed but dimmed.
+    function dump() {
+        return [
+            { id: 52, type: "PipeWire:Interface:Device",
+              info: { props: { "media.class": "Audio/Device" },
+                      params: { Route: [ { device: 0, available: "unknown" },
+                                         { device: 1, available: "no" },
+                                         { device: 2, available: "yes" } ] } } },
+            { id: 70, type: "PipeWire:Interface:Node",
+              info: { props: { "node.name": "builtin-mic", "device.id": 52, "card.profile.device": 0 } } },
+            { id: 71, type: "PipeWire:Interface:Node",
+              info: { props: { "node.name": "jack-mic", "device.id": 52, "card.profile.device": 1 } } },
+            { id: 72, type: "PipeWire:Interface:Node",
+              info: { props: { "node.name": "jack-out", "device.id": 52, "card.profile.device": 2 } } },
+            { id: 73, type: "PipeWire:Interface:Node",
+              info: { props: { "node.name": "bt-out", "device.id": 99 } } }
+        ]
+    }
+    function test_unavailable_from_routes() {
+        var u = AD.unavailableNames(dump())
+        compare(Object.keys(u), ["jack-mic"])
+    }
+    function test_unavailable_from_text_tolerates_garbage() {
+        compare(Object.keys(AD.unavailableFromText(JSON.stringify(dump()))), ["jack-mic"])
+        compare(Object.keys(AD.unavailableFromText("")), [])
+        compare(Object.keys(AD.unavailableFromText("not json")), [])
+        compare(Object.keys(AD.unavailableFromText("{}")), [])
+        compare(Object.keys(AD.unavailableNames([{ type: "PipeWire:Interface:Device", info: null }])), [])
+    }
+    function test_list_marks_unavailable() {
+        var rs = [rec({ mediaClass: "Audio/Source", deviceId: "52", name: "builtin-mic", description: "A" }),
+                  rec({ mediaClass: "Audio/Source", deviceId: "52", name: "jack-mic", description: "B" })]
+        var l = AD.buildList(rs, "input", "builtin-mic", { "jack-mic": true })
+        compare(l.map(function (d) { return d.available }), [true, false])
+        verify(AD.buildList(rs, "input", "").every(function (d) { return d.available }))   // no map → all available
+    }
     function test_list_sig() {
         compare(AD.listSig([]), "")
         compare(AD.listSig([{ name: "a" }, { name: "b" }]), "a\nb")

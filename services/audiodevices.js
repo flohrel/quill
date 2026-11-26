@@ -9,7 +9,7 @@
 //           except id. They map to node.name, node.description, node.nick,
 //           media.class, device.id, device.bus, device.icon_name,
 //           device.profile.name, device.profile.description.
-// List entry: { name, label, glyph, isDefault }
+// List entry: { name, label, glyph, isDefault, available }
 
 // Only hardware-backed nodes are devices: a sink/source without device.id is
 // virtual (null sink, loopback), and quill's own helpers never count.
@@ -63,10 +63,14 @@ function glyph(rec) {
 
 // Devices of one kind ("output" | "input"), sorted by label
 // (case-insensitive), then name; isDefault marks defaultName's entry.
-function buildList(records, kind, defaultName) {
+// `unavailable` ({ nodeName: true }, optional) marks ports that can't be
+// used right now (available: false).
+function buildList(records, kind, defaultName, unavailable) {
     var keep = kind === "input" ? isInput : isOutput
+    var off = unavailable || {}
     return records.filter(keep).map(function (r) {
-        return { name: r.name, label: shortLabel(r), glyph: glyph(r), isDefault: r.name === defaultName }
+        return { name: r.name, label: shortLabel(r), glyph: glyph(r),
+                 isDefault: r.name === defaultName, available: !off[r.name] }
     }).sort(function (a, b) {
         var la = a.label.toLowerCase(), lb = b.label.toLowerCase()
         if (la !== lb) return la < lb ? -1 : 1
@@ -81,4 +85,31 @@ function chipLabel(defaultRec, kind) {
 
 function listSig(list) {
     return list.map(function (d) { return d.name }).join("\n")
+}
+
+// Port availability, from a parsed `pw-dump` array. Quickshell doesn't expose
+// device routes, so AudioService runs pw-dump. A node is unavailable when the
+// active route of its card profile device (node prop card.profile.device on
+// device device.id) reports available "no" — e.g. a jack mic with nothing
+// plugged in. Returns { nodeName: true }.
+function unavailableNames(objects) {
+    var routes = {}   // "<deviceId>:<profileDevice>" -> available
+    var out = {}
+    if (!Array.isArray(objects)) return out
+    objects.forEach(function (o) {
+        if (!o || !o.info || String(o.type).indexOf("Interface:Device") < 0) return
+        var rs = (o.info.params && o.info.params.Route) || []
+        rs.forEach(function (r) { if (r) routes[o.id + ":" + r.device] = r.available })
+    })
+    objects.forEach(function (o) {
+        if (!o || !o.info || String(o.type).indexOf("Interface:Node") < 0) return
+        var p = o.info.props || {}
+        if (p["device.id"] === undefined || p["card.profile.device"] === undefined) return
+        if (routes[p["device.id"] + ":" + p["card.profile.device"]] === "no") out[p["node.name"]] = true
+    })
+    return out
+}
+
+function unavailableFromText(text) {
+    try { return unavailableNames(JSON.parse(text)) } catch (e) { return {} }
 }

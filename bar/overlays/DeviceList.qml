@@ -6,7 +6,9 @@ import "../../services/audiodevices.js" as AD
 
 // Inline device list under the mixer page's chips (#5): one row per output
 // (or input); the default is highlighted and tagged. Clicking a row emits
-// picked(name). `devices` is an AudioService.outputs/inputs array.
+// picked(name). `devices` is an AudioService.outputs/inputs array. A port
+// that can't be used right now (available: false, e.g. a jack mic with
+// nothing plugged in) is dimmed and can't be picked.
 Rectangle {
     id: list
     property var devices: []
@@ -47,11 +49,13 @@ Rectangle {
                 id: row
                 required property string dname
                 readonly property var dev: (list.devices || []).find(d => d.name === row.dname)
-                                           || { name: row.dname, label: "", glyph: "", isDefault: false }
+                                           || { name: row.dname, label: "", glyph: "", isDefault: false, available: false }
                 width: col.width
                 height: 30
                 radius: 8
-                color: dev.isDefault ? Theme.surfaceAlt : (mouse.containsMouse ? Theme.surface : "transparent")
+                opacity: row.dev.available ? 1 : 0.4
+                color: row.dev.isDefault ? Theme.surfaceAlt
+                     : (mouse.containsMouse && row.dev.available ? Theme.surface : "transparent")
 
                 Text {
                     id: ic
@@ -92,6 +96,7 @@ Rectangle {
                     id: mouse
                     anchors.fill: parent
                     hoverEnabled: true
+                    enabled: row.dev.available
                     cursorShape: Qt.PointingHandCursor
                     onClicked: list.picked(row.dname)
                 }

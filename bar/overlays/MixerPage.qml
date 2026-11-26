@@ -19,7 +19,10 @@ Column {
     property var expandedKeys: ({})
     // Which device list is open (#5): "" | "output" | "input".
     property string openList: ""
-    function toggleList(kind) { openList = openList === kind ? "" : kind }
+    function toggleList(kind) {
+        openList = openList === kind ? "" : kind
+        if (openList !== "") AudioService.refreshAvailability()
+    }
     function reset() { expandedKeys = ({}); openList = ""; list.positionViewAtBeginning() }
     function toggle(key) {
         const next = Object.assign({}, expandedKeys)

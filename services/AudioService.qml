@@ -1,6 +1,7 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Services.Pipewire
 import "audiodevices.js" as AD
 
@@ -40,8 +41,25 @@ Singleton {
     }
     readonly property var records: deviceNodes.map(root.toRecord)
 
-    readonly property var outputs: AD.buildList(records, "output", sink ? _str(sink.name) : "")
-    readonly property var inputs: AD.buildList(records, "input", source ? _str(source.name) : "")
+    // Port availability (jack mic with nothing plugged in): Quickshell doesn't
+    // expose device routes, so a one-shot pw-dump is parsed by
+    // AD.unavailableFromText. Re-run when the device set changes (plugging
+    // the jack switches the card profile, which swaps nodes) and whenever a
+    // picker list opens (refreshAvailability).
+    property var _unavailable: ({})
+    readonly property string _deviceSig: records.map(r => r.name).join("\n")
+    on_DeviceSigChanged: availDebounce.restart()
+    Component.onCompleted: refreshAvailability()
+    function refreshAvailability() { if (!dumpProc.running) dumpProc.running = true }
+    Timer { id: availDebounce; interval: 300; onTriggered: root.refreshAvailability() }
+    Process {
+        id: dumpProc
+        command: ["pw-dump"]
+        stdout: StdioCollector { onStreamFinished: root._unavailable = AD.unavailableFromText(this.text) }
+    }
+
+    readonly property var outputs: AD.buildList(records, "output", sink ? _str(sink.name) : "", _unavailable)
+    readonly property var inputs: AD.buildList(records, "input", source ? _str(source.name) : "", _unavailable)
     readonly property var _sinkRec: sink ? toRecord(sink) : null
     readonly property var _sourceRec: source ? toRecord(source) : null
     readonly property string outputLabel: AD.chipLabel(_sinkRec, "output")
@@ -50,9 +68,10 @@ Singleton {
     readonly property string inputGlyph: AD.GLYPH_MIC
 
     function _deviceNode(name, isKind) {
+        if (_unavailable[name]) return null
         return deviceNodes.find(n => _str(n.name) === name && isKind(toRecord(n))) || null
     }
-    // No-op for a stale/unknown name. Always writes the preferred default,
+    // No-op for a stale/unknown or unavailable name. Always writes the preferred default,
     // even when the device is already the active one: the configured default
     // may be an absent device WirePlumber fell back from, and an explicit
     // pick must stop it taking over again when it reconnects.
