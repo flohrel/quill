@@ -1,7 +1,9 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Services.Pipewire
+import "audiodevices.js" as AD
 
 Singleton {
     id: root
@@ -13,6 +15,74 @@ Singleton {
 
     // PipeWire node props are only valid while tracked.
     PwObjectTracker { objects: [Pipewire.defaultAudioSink, Pipewire.defaultAudioSource] }
+
+    // --- Devices (#5): plain records for the mixer's output/input pickers.
+    // Every non-stream node is tracked (filtered on isStream alone, as in
+    // MixerService: props are only valid while tracked, so gating tracking
+    // on them could never start); audiodevices.js picks the real devices.
+    readonly property var deviceNodes: Pipewire.nodes.values.filter(n => n && !n.isStream)
+    PwObjectTracker { objects: root.deviceNodes }
+
+    function _str(v) { return v === undefined || v === null ? "" : String(v) }
+    function toRecord(n) {
+        const p = n.properties || {}
+        return {
+            id: n.id,
+            name: _str(n.name),
+            description: _str(n.description),
+            nick: _str(n.nickname),
+            mediaClass: _str(p["media.class"]),
+            deviceId: _str(p["device.id"]),
+            bus: _str(p["device.bus"]),
+            iconName: _str(p["device.icon_name"]),
+            profileName: _str(p["device.profile.name"]),
+            profileDescription: _str(p["device.profile.description"])
+        }
+    }
+    readonly property var records: deviceNodes.map(root.toRecord)
+
+    // Port availability (jack mic with nothing plugged in): Quickshell doesn't
+    // expose device routes, so a one-shot pw-dump is parsed by
+    // AD.unavailableFromText. Re-run when the device set changes (plugging
+    // the jack switches the card profile, which swaps nodes) and whenever a
+    // picker list opens (refreshAvailability).
+    property var _unavailable: ({})
+    readonly property string _deviceSig: records.map(r => r.name).join("\n")
+    on_DeviceSigChanged: availDebounce.restart()
+    Component.onCompleted: refreshAvailability()
+    function refreshAvailability() { if (!dumpProc.running) dumpProc.running = true }
+    Timer { id: availDebounce; interval: 300; onTriggered: root.refreshAvailability() }
+    Process {
+        id: dumpProc
+        command: ["pw-dump"]
+        stdout: StdioCollector { onStreamFinished: root._unavailable = AD.unavailableFromText(this.text) }
+    }
+
+    readonly property var outputs: AD.buildList(records, "output", sink ? _str(sink.name) : "", _unavailable)
+    readonly property var inputs: AD.buildList(records, "input", source ? _str(source.name) : "", _unavailable)
+    readonly property var _sinkRec: sink ? toRecord(sink) : null
+    readonly property var _sourceRec: source ? toRecord(source) : null
+    readonly property string outputLabel: AD.chipLabel(_sinkRec, "output")
+    readonly property string inputLabel: AD.chipLabel(_sourceRec, "input")
+    readonly property string outputGlyph: _sinkRec ? AD.glyph(_sinkRec) : AD.GLYPH_SPEAKER
+    readonly property string inputGlyph: AD.GLYPH_MIC
+
+    function _deviceNode(name, isKind) {
+        if (_unavailable[name]) return null
+        return deviceNodes.find(n => _str(n.name) === name && isKind(toRecord(n))) || null
+    }
+    // No-op for a stale/unknown or unavailable name. Always writes the preferred default,
+    // even when the device is already the active one: the configured default
+    // may be an absent device WirePlumber fell back from, and an explicit
+    // pick must stop it taking over again when it reconnects.
+    function setDefaultOutput(name) {
+        const n = _deviceNode(name, AD.isOutput)
+        if (n) Pipewire.preferredDefaultAudioSink = n
+    }
+    function setDefaultInput(name) {
+        const n = _deviceNode(name, AD.isInput)
+        if (n) Pipewire.preferredDefaultAudioSource = n
+    }
 
     // Setting a volume also unmutes: a drag means "I want sound" (#72).
     function setVolume(v) {

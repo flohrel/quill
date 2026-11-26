@@ -4,9 +4,10 @@ import qs.config     // qmllint disable import
 import qs.services   // qmllint disable import
 import "../../services/mixer.js" as M
 
-// Control Center → Mixer page (#18): back header, master row, then one
-// AppCard per app with an open output stream (scrolls past
-// Config.mixer.maxVisibleCards). BackHeader, ControlSlider and AppCard are
+// Control Center → Mixer page (#18): back header, output/mic chips with an
+// inline device list (#5), master row, then one AppCard per app with an
+// open output stream (scrolls past Config.mixer.maxVisibleCards).
+// BackHeader, DeviceChip, DeviceList, ControlSlider and AppCard are
 // same-directory components.
 Column {
     id: page
@@ -16,7 +17,17 @@ Column {
     // Fold-out state per group key. Reassigned (copy + toggle), never
     // mutated in place, so the cards' `expanded` bindings update.
     property var expandedKeys: ({})
-    function reset() { expandedKeys = ({}); list.positionViewAtBeginning() }
+    // Which device list is open (#5): "" | "output" | "input".
+    property string openList: ""
+    function toggleList(kind) { openList = openList === kind ? "" : kind }
+    // Port availability (a jack being plugged in) can change without any
+    // node change, so re-check it every second while a list is open.
+    Timer {
+        running: page.visible && page.openList !== ""
+        interval: 1000; repeat: true; triggeredOnStart: true
+        onTriggered: AudioService.refreshAvailability()
+    }
+    function reset() { expandedKeys = ({}); openList = ""; list.positionViewAtBeginning() }
     function toggle(key) {
         const next = Object.assign({}, expandedKeys)
         if (next[key]) delete next[key]; else next[key] = true
@@ -42,6 +53,41 @@ Column {
     readonly property int entryGap: rows ? 2 : Config.mixer.cardGap
 
     BackHeader { label: "Mixer"; onBack: page.back() }
+
+    // Device pickers (#5): output chip (left) and mic chip (right); one list
+    // open at a time, inline, pushing the master row and cards down.
+    Item {
+        width: parent.width
+        height: outChip.implicitHeight
+        DeviceChip {
+            id: outChip
+            anchors.left: parent.left
+            maxWidth: (parent.width - 8) / 2
+            glyph: AudioService.outputGlyph
+            label: AudioService.outputLabel
+            open: page.openList === "output"
+            onClicked: page.toggleList("output")
+        }
+        DeviceChip {
+            anchors.right: parent.right
+            maxWidth: (parent.width - 8) / 2
+            glyph: AudioService.inputGlyph
+            label: AudioService.inputLabel
+            open: page.openList === "input"
+            onClicked: page.toggleList("input")
+        }
+    }
+    DeviceList {
+        width: parent.width
+        visible: page.openList !== ""
+        devices: page.openList === "input" ? AudioService.inputs : AudioService.outputs
+        emptyText: page.openList === "input" ? "No inputs" : "No outputs"
+        onPicked: (name) => {
+            if (page.openList === "input") AudioService.setDefaultInput(name)
+            else AudioService.setDefaultOutput(name)
+            page.openList = ""
+        }
+    }
 
     // Master row: mute button · slider · % (or "muted")
     Item {
