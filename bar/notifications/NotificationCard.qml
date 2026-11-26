@@ -6,7 +6,8 @@ import qs.services   // qmllint disable import
 import "../../services/notifications.js" as N
 
 // One notification popup in the bar's card style. Left-click runs the default
-// action (or dismisses), right-click dismisses, hovering pauses the timeout.
+// action (or dismisses), right-click dismisses, hovering pauses the timeout
+// (pointer input via CardPointer, which stays hovered over text and buttons).
 // The countdown itself lives in NotificationService (shared across outputs);
 // the card only reports hover, and draws `remaining`/`total` as a countdown
 // (#67) in the look chosen by Config.notifications.countdown.
@@ -46,97 +47,93 @@ Rectangle {
     Component.onCompleted: opacity = 1
     Behavior on opacity { NumberAnimation { duration: Config.shape.animDuration } }
 
-    MouseArea {
-        id: hover
+    CardPointer {
         anchors.fill: parent
-        hoverEnabled: true
-        acceptedButtons: Qt.LeftButton | Qt.RightButton
-        cursorShape: Qt.PointingHandCursor
-        onContainsMouseChanged: NotificationService.setHovered(card.notifId, containsMouse)
-        onClicked: mouse => {
-            if (mouse.button === Qt.RightButton) NotificationService.dismiss(card.notifId)
+        onHoveredChanged: NotificationService.setHovered(card.notifId, hovered)
+        onClicked: button => {
+            if (button === Qt.RightButton) NotificationService.dismiss(card.notifId)
             else NotificationService.activate(card.notifId)
         }
-    }
 
-    Row {
-        id: content
-        x: Config.notifications.padding
-        y: Config.notifications.padding
-        width: card.width - Config.notifications.padding * 2
-        spacing: Config.notifications.padding
+        Row {
+            id: content
+            x: Config.notifications.padding
+            y: Config.notifications.padding
+            width: card.width - Config.notifications.padding * 2
+            spacing: Config.notifications.padding
 
-        IconImage {
-            id: icon
-            visible: card.iconSource !== ""
-            source: card.iconSource
-            implicitSize: Config.notifications.iconSize
-        }
+            IconImage {
+                id: icon
+                visible: card.iconSource !== ""
+                source: card.iconSource
+                implicitSize: Config.notifications.iconSize
+            }
 
-        Column {
-            width: content.width - (icon.visible ? icon.width + content.spacing : 0)
-            spacing: 4
+            Column {
+                width: content.width - (icon.visible ? icon.width + content.spacing : 0)
+                spacing: 4
 
-            Item {   // summary + ×N repeat chip (#65); summary elides first
-                width: parent.width
-                height: summary.implicitHeight
+                Item {   // summary + ×N repeat chip (#65); summary elides first
+                    width: parent.width
+                    height: summary.implicitHeight
+                    Text {
+                        id: summary
+                        anchors.left: parent.left
+                        width: parent.width - (chip.visible ? chip.implicitWidth + 6 : 0)
+                        text: card.notif ? card.notif.summary : ""
+                        font.bold: true
+                        font.pixelSize: 14
+                        color: card.critical ? Theme.urgent : Theme.foreground
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        id: chip
+                        anchors.right: parent.right
+                        anchors.baseline: summary.baseline
+                        visible: card.repeats > 1
+                        text: "\u00D7" + card.repeats
+                        font.pixelSize: 12
+                        font.family: "monospace"
+                        color: Theme.foregroundDim
+                    }
+                }
                 Text {
-                    id: summary
-                    anchors.left: parent.left
-                    width: parent.width - (chip.visible ? chip.implicitWidth + 6 : 0)
-                    text: card.notif ? card.notif.summary : ""
-                    font.bold: true
-                    font.pixelSize: 14
-                    color: card.critical ? Theme.urgent : Theme.foreground
+                    width: parent.width
+                    visible: text !== ""
+                    text: card.notif ? card.notif.body : ""
+                    textFormat: Text.StyledText
+                    font.pixelSize: 13
+                    color: Theme.foregroundDim
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 4
                     elide: Text.ElideRight
                 }
-                Text {
-                    id: chip
-                    anchors.right: parent.right
-                    anchors.baseline: summary.baseline
-                    visible: card.repeats > 1
-                    text: "\u00D7" + card.repeats
-                    font.pixelSize: 12
-                    font.family: "monospace"
-                    color: Theme.foregroundDim
-                }
-            }
-            Text {
-                width: parent.width
-                visible: text !== ""
-                text: card.notif ? card.notif.body : ""
-                textFormat: Text.StyledText
-                font.pixelSize: 13
-                color: Theme.foregroundDim
-                wrapMode: Text.Wrap
-                maximumLineCount: 4
-                elide: Text.ElideRight
-            }
-            Row {
-                spacing: 6
-                visible: actionRepeater.count > 0
-                Repeater {
-                    id: actionRepeater
-                    model: card.notif ? card.notif.actions.filter(a => a.identifier !== "default") : []
-                    delegate: Rectangle {
-                        required property var modelData
-                        implicitWidth: label.implicitWidth + 20
-                        implicitHeight: label.implicitHeight + 10
-                        radius: 8
-                        color: actionArea.containsMouse ? Theme.border : Theme.surfaceAlt
-                        Text {
-                            id: label
-                            anchors.centerIn: parent
-                            text: parent.modelData.text
-                            font.pixelSize: 12
-                            color: Theme.foreground
-                        }
-                        MouseArea {
-                            id: actionArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: parent.modelData.invoke()
+                Row {
+                    spacing: 6
+                    visible: actionRepeater.count > 0
+                    Repeater {
+                        id: actionRepeater
+                        model: card.notif ? card.notif.actions.filter(a => a.identifier !== "default") : []
+                        delegate: Rectangle {
+                            required property var modelData
+                            implicitWidth: label.implicitWidth + 20
+                            implicitHeight: label.implicitHeight + 10
+                            radius: 8
+                            color: actionArea.containsMouse ? Theme.border : Theme.surfaceAlt
+                            Text {
+                                id: label
+                                anchors.centerIn: parent
+                                text: parent.modelData.text
+                                font.pixelSize: 12
+                                color: Theme.foreground
+                            }
+                            MouseArea {
+                                id: actionArea
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: parent.modelData.invoke()
+                            }
                         }
                     }
                 }
