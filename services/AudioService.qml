@@ -84,6 +84,29 @@ Singleton {
         if (n) Pipewire.preferredDefaultAudioSource = n
     }
 
+    // --- Raw per-output levels (#22) for VolumeService, keyed by node.name:
+    // hardware outputs only (AD.isOutput), ready nodes only (a node that
+    // isn't ready yet reads volume 0). The setters never unmute on their own.
+    readonly property var outputLevels: {
+        const out = {}
+        deviceNodes.forEach(n => {
+            if (n.ready && n.audio && AD.isOutput(toRecord(n)))
+                out[_str(n.name)] = { volume: n.audio.volume, muted: n.audio.muted }
+        })
+        return out
+    }
+    function _outputNode(name) {
+        return deviceNodes.find(n => n.ready && n.audio && _str(n.name) === name && AD.isOutput(toRecord(n))) || null
+    }
+    function setOutputVolume(name, v) {
+        const n = _outputNode(name)
+        if (n) n.audio.volume = Math.max(0, Math.min(1, v))
+    }
+    function setOutputMuted(name, m) {
+        const n = _outputNode(name)
+        if (n) n.audio.muted = !!m
+    }
+
     // Setting a volume also unmutes: a drag means "I want sound" (#72).
     function setVolume(v) {
         if (!sink || !sink.audio) return

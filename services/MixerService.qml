@@ -124,6 +124,34 @@ Singleton {
         if (_pinnedTo(key, name)) setGroupVolume(key, v)
     }
 
+    // --- For VolumeService (#22): every live playback stream with its
+    // group key and serial (uid), ready nodes only; a raw writer that never
+    // unmutes on its own; and the devices live pinned apps play on.
+    readonly property var streamRefs: {
+        const out = []
+        groups.forEach(g => g.streams.forEach(s => {
+            const n = root._node(s.id)
+            if (n && n.ready)
+                out.push({ id: s.id, uid: root._serial(s.id) || ("id" + s.id), key: g.key,
+                           volume: s.volume, muted: s.muted })
+        }))
+        return out
+    }
+    function writeStream(id, volume, muted) {
+        const n = _node(id)
+        if (!n) return
+        n.audio.volume = M.clamp01(volume)
+        n.audio.muted = !!muted
+    }
+    readonly property var liveRouteDevices: {
+        const out = {}
+        groups.forEach(g => {
+            const r = g.routable ? R.routeFor(routeTable, g.key) : null
+            if (r && R.usable(_outputs, r.device)) out[r.device] = true
+        })
+        return out
+    }
+
     // Planner: any change to streams, routes or device availability re-plans
     // after a short debounce (never from an onChanged of its own inputs).
     property var _pinState: R.newPinState()
