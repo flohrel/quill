@@ -17,7 +17,7 @@ Item {
     property bool expanded: false
     signal toggleExpanded()
 
-    readonly property bool muted: !!group && group.muted
+    readonly property bool muted: !!group && VolumeService.appMuted(group.key)
     readonly property bool foldable: M.showFoldout(group, "rows")
     readonly property string streamSig: group ? group.streams.map(s => s.id).join(",") : ""
     // Fold-out rows diffed in place, like MixerPage's list (see there).
@@ -68,8 +68,8 @@ Item {
                 trackColor: Theme.surfaceAlt
                 fillColor: row.muted ? Theme.border : Theme.accent
                 knobColor: row.muted ? Theme.border : Theme.foreground
-                value: row.group ? row.group.volume : 0
-                onMoved: (v) => MixerService.setGroupVolume(row.group.key, v)
+                value: row.group ? VolumeService.appLevel(row.group.key) : 0
+                onMoved: (v) => VolumeService.setAppLevel(row.group.key, v)
             }
             Text {
                 id: pct
@@ -97,7 +97,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 size: 24
                 muted: row.muted
-                onToggled: MixerService.toggleGroupMute(row.group.key)
+                onToggled: VolumeService.toggleAppMute(row.group.key)
             }
             Text {
                 id: chev
@@ -157,7 +157,7 @@ Item {
                             text: srow.stream.label
                             elide: Text.ElideRight
                             font.pixelSize: 11
-                            color: srow.stream.muted ? Theme.border : Theme.foregroundDim
+                            color: VolumeService.tabMuted(srow.stream.id) ? Theme.border : Theme.foregroundDim
                         }
                         ControlSlider {
                             id: sslider
@@ -166,27 +166,27 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             glyph: ""
                             trackColor: Theme.surface
-                            fillColor: srow.stream.muted ? Theme.border : Theme.accent
-                            knobColor: srow.stream.muted ? Theme.border : Theme.foreground
-                            value: srow.stream.volume
-                            onMoved: (v) => MixerService.setStreamVolume(srow.stream.id, v)
+                            fillColor: VolumeService.tabMuted(srow.stream.id) ? Theme.border : Theme.accent
+                            knobColor: VolumeService.tabMuted(srow.stream.id) ? Theme.border : Theme.foreground
+                            value: VolumeService.tabLevel(srow.stream.id)
+                            onMoved: (v) => VolumeService.setTabLevel(srow.stream.id, v)
                         }
                         Text {
                             id: spct
                             anchors.right: smute.left; anchors.rightMargin: 4
                             anchors.verticalCenter: parent.verticalCenter
                             width: 34; horizontalAlignment: Text.AlignRight
-                            text: srow.stream.muted ? "muted" : M.percent(sslider.shownValue)
+                            text: VolumeService.tabMuted(srow.stream.id) ? "muted" : M.percent(sslider.shownValue)
                             font.pixelSize: 10; font.family: "monospace"
-                            color: srow.stream.muted ? Theme.urgent : Theme.foregroundDim
+                            color: VolumeService.tabMuted(srow.stream.id) ? Theme.urgent : Theme.foregroundDim
                         }
                         MuteButton {
                             id: smute
                             anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
                             size: 20
-                            muted: srow.stream.muted
-                            onToggled: MixerService.toggleStreamMute(srow.stream.id)
+                            muted: VolumeService.tabMuted(srow.stream.id)
+                            onToggled: VolumeService.toggleTabMute(srow.stream.id)
                         }
                     }
                 }

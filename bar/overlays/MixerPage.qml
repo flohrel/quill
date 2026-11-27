@@ -27,7 +27,9 @@ Column {
         interval: 1000; repeat: true; triggeredOnStart: true
         onTriggered: AudioService.refreshAvailability()
     }
-    function reset() { expandedKeys = ({}); openList = ""; list.positionViewAtBeginning() }
+    // Output levels fold out under the master (#22, layout B).
+    property bool outputsOpen: false
+    function reset() { expandedKeys = ({}); openList = ""; outputsOpen = false; list.positionViewAtBeginning() }
     function toggle(key) {
         const next = Object.assign({}, expandedKeys)
         if (next[key]) delete next[key]; else next[key] = true
@@ -89,7 +91,9 @@ Column {
         }
     }
 
-    // Master row: mute button · slider · % (or "muted")
+    // Master row (#22): mute button · slider · % (or "muted") · chevron.
+    // The master is quill's own level, not any device's; it shows muted
+    // when the master or the default output is muted.
     Item {
         width: parent.width
         height: Config.controlcenter.sliderHeight
@@ -99,8 +103,8 @@ Column {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             size: 24
-            muted: AudioService.muted
-            onToggled: AudioService.toggleMute()
+            muted: VolumeService.masterShownMuted
+            onToggled: VolumeService.toggleMasterMute()
         }
         ControlSlider {
             id: masterSlider
@@ -108,19 +112,48 @@ Column {
             anchors.right: mpct.left; anchors.rightMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             glyph: ""
-            fillColor: AudioService.muted ? Theme.border : Theme.accent
-            knobColor: AudioService.muted ? Theme.border : Theme.foreground
-            value: AudioService.volume
-            onMoved: (v) => AudioService.setVolume(v)
+            fillColor: VolumeService.masterShownMuted ? Theme.border : Theme.accent
+            knobColor: VolumeService.masterShownMuted ? Theme.border : Theme.foreground
+            value: VolumeService.masterLevel
+            onMoved: (v) => VolumeService.setMasterLevel(v)
         }
         Text {
             id: mpct
-            anchors.right: parent.right
+            anchors.right: mchev.left; anchors.rightMargin: 4
             anchors.verticalCenter: parent.verticalCenter
             width: 40; horizontalAlignment: Text.AlignRight
-            text: AudioService.muted ? "muted" : M.percent(masterSlider.shownValue)
+            text: VolumeService.masterShownMuted ? "muted" : M.percent(masterSlider.shownValue)
             font.pixelSize: 11; font.family: "monospace"
-            color: AudioService.muted ? Theme.urgent : Theme.foregroundDim
+            color: VolumeService.masterShownMuted ? Theme.urgent : Theme.foregroundDim
+        }
+        Text {
+            id: mchev
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            width: 14; horizontalAlignment: Text.AlignHCenter
+            text: page.outputsOpen ? "\u{F077}" : "\u{F078}"   // chevron up / down
+            font.family: "Symbols Nerd Font"; font.pixelSize: 11
+            color: Theme.foregroundDim
+            MouseArea {
+                anchors.fill: parent; anchors.margins: -8
+                cursorShape: Qt.PointingHandCursor
+                onClicked: page.outputsOpen = !page.outputsOpen
+            }
+        }
+    }
+
+    // Output levels, folded out under the master.
+    Rectangle {
+        visible: page.outputsOpen
+        width: parent.width
+        height: outputLevels.implicitHeight + 12
+        radius: 10
+        color: Theme.background
+        border.width: 1; border.color: Theme.border
+        OutputLevels {
+            id: outputLevels
+            anchors.left: parent.left; anchors.right: parent.right
+            anchors.top: parent.top; anchors.margins: 6
         }
     }
 

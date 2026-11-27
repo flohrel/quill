@@ -87,10 +87,10 @@ PanelWindow {
                 rowSpacing: Config.controlcenter.toggleGap
                 columnSpacing: Config.controlcenter.toggleGap
                 ToggleButton {
-                    glyph: AudioService.muted ? "" : ""
+                    glyph: VolumeService.masterShownMuted ? "\u{F026}" : "\u{F028}"
                     label: "Sound"
-                    active: !AudioService.muted
-                    onClicked: AudioService.toggleMute()
+                    active: !VolumeService.masterShownMuted
+                    onClicked: VolumeService.toggleMasterMute()
                 }
                 ToggleButton {
                     glyph: AudioService.sourceMuted ? "" : ""
@@ -140,11 +140,11 @@ PanelWindow {
             }
             ControlSlider {
                 width: parent.width
-                glyph: AudioService.muted ? "" : ""
-                fillColor: AudioService.muted ? Theme.border : Theme.accent
-                knobColor: AudioService.muted ? Theme.border : Theme.foreground
-                value: AudioService.volume
-                onMoved: (v) => AudioService.setVolume(v)
+                glyph: VolumeService.masterShownMuted ? "\u{F026}" : "\u{F028}"
+                fillColor: VolumeService.masterShownMuted ? Theme.border : Theme.accent
+                knobColor: VolumeService.masterShownMuted ? Theme.border : Theme.foreground
+                value: VolumeService.masterLevel
+                onMoved: (v) => VolumeService.setMasterLevel(v)
                 showMore: true
                 onMore: overlay.openPage("mixer")
             }

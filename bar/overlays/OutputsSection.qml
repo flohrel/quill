@@ -145,8 +145,13 @@ Column {
                 trackColor: Theme.surface
                 fillColor: orow.r.state === "pinned" ? Theme.accent : Theme.border
                 knobColor: orow.r.state === "pinned" ? Theme.foreground : Theme.border
-                value: orow.r.state === "pinned" ? orow.r.level : 0
-                onMoved: (v) => MixerService.setOutputLevel(sec.key, orow.oname, v)
+                value: orow.r.state === "pinned" ? VolumeService.appLevel(sec.key) : 0
+                // The pinned row is the app's own level (#22). Raising an
+                // "off" row moves the app there at the dragged level.
+                onMoved: (v) => {
+                    if (orow.r.state !== "pinned" && v > 0) MixerService.pinOutput(sec.key, orow.oname)
+                    if (MixerService.isPinnedTo(sec.key, orow.oname)) VolumeService.setAppLevel(sec.key, v)
+                }
             }
             Text {
                 id: opct

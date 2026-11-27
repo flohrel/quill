@@ -16,7 +16,7 @@ Rectangle {
     property bool expanded: false
     signal toggleExpanded()
 
-    readonly property bool muted: !!group && group.muted
+    readonly property bool muted: !!group && VolumeService.appMuted(group.key)
     readonly property bool foldable: M.showFoldout(group, "cards")
     readonly property string subtitle: group ? group.subtitle : ""
     readonly property string streamSig: group ? group.streams.map(s => s.id).join(",") : ""
@@ -110,7 +110,7 @@ Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 size: 28
                 muted: card.muted
-                onToggled: MixerService.toggleGroupMute(card.group.key)
+                onToggled: VolumeService.toggleAppMute(card.group.key)
             }
         }
 
@@ -128,8 +128,8 @@ Rectangle {
                 trackColor: Theme.surface
                 fillColor: card.muted ? Theme.border : Theme.accent
                 knobColor: card.muted ? Theme.border : Theme.foreground
-                value: card.group ? card.group.volume : 0
-                onMoved: (v) => MixerService.setGroupVolume(card.group.key, v)
+                value: card.group ? VolumeService.appLevel(card.group.key) : 0
+                onMoved: (v) => VolumeService.setAppLevel(card.group.key, v)
             }
             Text {
                 id: pct
@@ -171,7 +171,7 @@ Rectangle {
                     text: srow.stream.label
                     elide: Text.ElideRight
                     font.pixelSize: 11
-                    color: srow.stream.muted ? Theme.border : Theme.foregroundDim
+                    color: VolumeService.tabMuted(srow.stream.id) ? Theme.border : Theme.foregroundDim
                 }
                 ControlSlider {
                     id: sslider
@@ -180,27 +180,27 @@ Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     glyph: ""
                     trackColor: Theme.surface
-                    fillColor: srow.stream.muted ? Theme.border : Theme.accent
-                    knobColor: srow.stream.muted ? Theme.border : Theme.foreground
-                    value: srow.stream.volume
-                    onMoved: (v) => MixerService.setStreamVolume(srow.stream.id, v)
+                    fillColor: VolumeService.tabMuted(srow.stream.id) ? Theme.border : Theme.accent
+                    knobColor: VolumeService.tabMuted(srow.stream.id) ? Theme.border : Theme.foreground
+                    value: VolumeService.tabLevel(srow.stream.id)
+                    onMoved: (v) => VolumeService.setTabLevel(srow.stream.id, v)
                 }
                 Text {
                     id: spct
                     anchors.right: smute.left; anchors.rightMargin: 6
                     anchors.verticalCenter: parent.verticalCenter
                     width: 36; horizontalAlignment: Text.AlignRight
-                    text: srow.stream.muted ? "muted" : M.percent(sslider.shownValue)
+                    text: VolumeService.tabMuted(srow.stream.id) ? "muted" : M.percent(sslider.shownValue)
                     font.pixelSize: 10; font.family: "monospace"
-                    color: srow.stream.muted ? Theme.urgent : Theme.foregroundDim
+                    color: VolumeService.tabMuted(srow.stream.id) ? Theme.urgent : Theme.foregroundDim
                 }
                 MuteButton {
                     id: smute
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     size: 22
-                    muted: srow.stream.muted
-                    onToggled: MixerService.toggleStreamMute(srow.stream.id)
+                    muted: VolumeService.tabMuted(srow.stream.id)
+                    onToggled: VolumeService.toggleTabMute(srow.stream.id)
                 }
             }
         }
