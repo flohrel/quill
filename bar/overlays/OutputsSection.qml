@@ -16,7 +16,8 @@ Column {
     property var group
     readonly property string key: group ? group.key : ""
     readonly property bool pinned: key !== "" && MixerService.isPinned(key)
-    // "Choose output" tapped but no device picked yet: rows show, no route.
+    // "Choose output" tapped with no usable default to start from: rows
+    // show, no route yet.
     property bool choosing: false
     onKeyChanged: choosing = false
     readonly property bool showRows: pinned || choosing
@@ -90,7 +91,10 @@ Column {
     Radio {
         on: sec.showRows
         label: "Choose output"
-        onTapped: sec.choosing = true
+        onTapped: {
+            sec.choosing = true
+            MixerService.chooseOutput(sec.key)
+        }
     }
 
     Repeater {

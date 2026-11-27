@@ -108,6 +108,13 @@ Singleton {
         const d = _outputs.find(o => o.name === name)
         _setTable(R.setRoute(routeTable, key, name, d ? d.label : name))
     }
+    // "Choose output" from Follow default: pin to the device the app is
+    // already playing on (the default), so one output is always selected.
+    function chooseOutput(key) {
+        if (isPinned(key)) return
+        const name = R.defaultOutput(_outputs)
+        if (name !== "") pinOutput(key, name)
+    }
     // A row's slider: on the pinned device it is the app volume; raising an
     // "off" device pins the app there at the dragged level.
     function setOutputLevel(key, name, v) {

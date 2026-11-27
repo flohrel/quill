@@ -160,4 +160,14 @@ TestCase {
         compare(R.plan([{ id: 87, uid: 2, key: "spotify" }], t, d, r1.st).ops,
                 [{ op: "pin", id: 87, uid: 2, device: bt }])
     }
+
+    function test_defaultOutput_is_usable_default() {
+        var d = [{ name: spk, label: "Speaker", glyph: "g", isDefault: false, available: true },
+                 { name: bt, label: "BT", glyph: "g", isDefault: true, available: true }]
+        compare(R.defaultOutput(d), bt)
+        d[1].available = false
+        compare(R.defaultOutput(d), "")
+        compare(R.defaultOutput([dev(spk, "Speaker", true)]), "")
+        compare(R.defaultOutput([]), "")
+    }
 }

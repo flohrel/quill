@@ -75,6 +75,15 @@ function usable(devices, name) {
     return !!d && d.available !== false
 }
 
+// The current default output's name if it can be pinned to, else "".
+// "Choose output" starts from it, so the device the app already plays on
+// shows as selected.
+function defaultOutput(devices) {
+    for (var i = 0; i < (devices || []).length; i++)
+        if (devices[i].isDefault) return devices[i].available === false ? "" : devices[i].name
+    return ""
+}
+
 function newPinState() { return { pinned: {}, absent: {} } }
 
 // Which pw-metadata ops bring the streams in line with the table.
