@@ -7,8 +7,10 @@ import "../../services/mixer.js" as M
 // One app on the mixer page, "rows" layout (#72, MacMix-style): a single
 // 32 px line, icon · name · slider · % · mute · chevron, no card. Rows have
 // no subtitle, so even a single titled stream folds out (#73) into an inset
-// box below. Same interface as AppCard: `group`, `expanded`,
-// `toggleExpanded()`.
+// box below; routable apps fold out too (#20): the box starts with the route
+// chip and ends with the Outputs section. Collapsed, a pinned route shows as
+// a small dot before the mute button. Same interface as AppCard: `group`,
+// `expanded`, `toggleExpanded()`.
 Item {
     id: row
     property var group
@@ -20,7 +22,8 @@ Item {
     readonly property string streamSig: group ? group.streams.map(s => s.id).join(",") : ""
     // Fold-out rows diffed in place, like MixerPage's list (see there).
     ListModel { id: streamModel }
-    readonly property bool _showStreams: foldable && expanded
+    // Stream rows keep their own rule; routable groups fold out regardless.
+    readonly property bool _showStreams: expanded && M.showFoldout({ streams: group ? group.streams : [] }, "rows")
     function syncStreams() {
         M.syncListModel(streamModel, "sid", _showStreams && streamSig !== "" ? streamSig.split(",") : [])
     }
@@ -70,12 +73,23 @@ Item {
             }
             Text {
                 id: pct
-                anchors.right: mute.left; anchors.rightMargin: 4
+                anchors.right: routeDot.visible ? routeDot.left : mute.left; anchors.rightMargin: 4
                 anchors.verticalCenter: parent.verticalCenter
                 width: 36; horizontalAlignment: Text.AlignRight
                 text: row.muted ? "muted" : (row.group ? M.percent(slider.shownValue) : "")
                 font.pixelSize: 11; font.family: "monospace"
                 color: row.muted ? Theme.urgent : Theme.foregroundDim
+            }
+            // Pinned (or pinned-but-unplugged) route, coloured like the chip.
+            Rectangle {
+                id: routeDot
+                readonly property var info: row.group && row.group.routable
+                    ? MixerService.routeChip(row.group.key) : ({ kind: "default" })
+                visible: info.kind !== "default"
+                anchors.right: mute.left; anchors.rightMargin: 4
+                anchors.verticalCenter: parent.verticalCenter
+                width: 6; height: 6; radius: 3
+                color: info.kind === "pinned" ? Theme.warning : Theme.border
             }
             MuteButton {
                 id: mute
@@ -105,7 +119,7 @@ Item {
 
         // Fold-out: inset box, one row per stream
         Rectangle {
-            visible: row._showStreams
+            visible: row.expanded && row.foldable
             x: 30
             width: parent.width - 30
             height: streams.implicitHeight + 8
@@ -117,6 +131,10 @@ Item {
                 anchors.top: parent.top; anchors.topMargin: 4
                 anchors.left: parent.left; anchors.leftMargin: 8
                 anchors.right: parent.right; anchors.rightMargin: 6
+                RouteChip {
+                    group: row.group
+                    maxWidth: streams.width
+                }
                 // Stream ids drive streamModel (diffed in place), so a volume
                 // echo never recreates a row mid-drag.
                 Repeater {
@@ -171,6 +189,11 @@ Item {
                             onToggled: MixerService.toggleStreamMute(srow.stream.id)
                         }
                     }
+                }
+                OutputsSection {
+                    width: streams.width
+                    visible: !!row.group && row.group.routable
+                    group: row.group
                 }
             }
         }

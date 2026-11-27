@@ -7,8 +7,9 @@ import "../../services/mixer.js" as M
 // One app on the mixer page, "cards" layout (#18, #72): top line = icon,
 // name over subtitle (track/tab title, or "2 tabs playing"), chevron when
 // there are 2+ streams, mute button; then the app slider and % ("muted"
-// when muted). Fold-out: one row per stream, each with its own mute button.
-// `group` is a MixerService.groups entry.
+// when muted). Fold-out: one row per stream (2+ streams), each with its own
+// mute button, then the Outputs section (#20) for routable apps; the route
+// chip sits left of the chevron. `group` is a MixerService.groups entry.
 Rectangle {
     id: card
     property var group
@@ -21,7 +22,9 @@ Rectangle {
     readonly property string streamSig: group ? group.streams.map(s => s.id).join(",") : ""
     // Fold-out rows diffed in place, like MixerPage's cards (see there).
     ListModel { id: streamModel }
-    readonly property bool _showStreams: foldable && expanded
+    // Stream rows keep their own rule (2+ streams); routable single-stream
+    // cards fold out for the Outputs section only.
+    readonly property bool _showStreams: expanded && M.showFoldout({ streams: group ? group.streams : [] }, "cards")
     function syncStreams() {
         M.syncListModel(streamModel, "sid", _showStreams && streamSig !== "" ? streamSig.split(",") : [])
     }
@@ -57,7 +60,7 @@ Rectangle {
 
             Column {
                 anchors.left: icon.right; anchors.leftMargin: 8
-                anchors.right: chev.visible ? chev.left : mute.left
+                anchors.right: route.visible ? route.left : (chev.visible ? chev.left : mute.left)
                 anchors.rightMargin: 6
                 anchors.verticalCenter: parent.verticalCenter
                 Text {
@@ -75,6 +78,14 @@ Rectangle {
                     font.pixelSize: 11
                     color: Theme.foregroundDim
                 }
+            }
+
+            RouteChip {
+                id: route
+                anchors.right: chev.visible ? chev.left : mute.left; anchors.rightMargin: 6
+                anchors.verticalCenter: parent.verticalCenter
+                group: card.group
+                maxWidth: 110
             }
 
             Text {
@@ -131,10 +142,10 @@ Rectangle {
             }
         }
 
-        // Fold-out: one row per stream
+        // Fold-out: one row per stream, then Outputs
         Rectangle {
             width: parent.width; height: 1
-            visible: card._showStreams
+            visible: card.expanded && card.foldable
             color: Theme.border
         }
         // Stream ids drive streamModel (diffed in place): groups is rebuilt
@@ -192,6 +203,12 @@ Rectangle {
                     onToggled: MixerService.toggleStreamMute(srow.stream.id)
                 }
             }
+        }
+
+        OutputsSection {
+            width: parent.width
+            visible: card.expanded && !!card.group && card.group.routable
+            group: card.group
         }
     }
 }
