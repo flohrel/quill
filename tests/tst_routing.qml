@@ -44,64 +44,64 @@ TestCase {
     function test_plan_pins_routed_streams() {
         var t = R.setRoute(R.emptyTable(), "spotify", bt, "BT")
         var st0 = R.newPinState()
-        var r = R.plan([{ id: 10, key: "spotify" }, { id: 11, key: "other" }], t, [dev(bt, "BT", true)], st0)
-        compare(r.ops, [{ op: "pin", id: 10, device: bt }])
+        var r = R.plan([{ id: 10, uid: 10, key: "spotify" }, { id: 11, uid: 11, key: "other" }], t, [dev(bt, "BT", true)], st0)
+        compare(r.ops, [{ op: "pin", id: 10, uid: 10, device: bt }])
         compare(r.st.pinned, { 10: bt })
         compare(st0.pinned, {})
     }
     function test_plan_new_stream_only() {
         var t = R.setRoute(R.emptyTable(), "firefox", bt, "BT"), d = [dev(bt, "BT", true)]
-        var r1 = R.plan([{ id: 1, key: "firefox" }], t, d, R.newPinState())
-        var r2 = R.plan([{ id: 1, key: "firefox" }, { id: 2, key: "firefox" }], t, d, r1.st)
-        compare(r2.ops, [{ op: "pin", id: 2, device: bt }])
-        compare(R.plan([{ id: 1, key: "firefox" }, { id: 2, key: "firefox" }], t, d, r2.st).ops, [])
+        var r1 = R.plan([{ id: 1, uid: 1, key: "firefox" }], t, d, R.newPinState())
+        var r2 = R.plan([{ id: 1, uid: 1, key: "firefox" }, { id: 2, uid: 2, key: "firefox" }], t, d, r1.st)
+        compare(r2.ops, [{ op: "pin", id: 2, uid: 2, device: bt }])
+        compare(R.plan([{ id: 1, uid: 1, key: "firefox" }, { id: 2, uid: 2, key: "firefox" }], t, d, r2.st).ops, [])
     }
     function test_plan_absent_then_present() {
-        var t = R.setRoute(R.emptyTable(), "spotify", bt, "BT"), s = [{ id: 10, key: "spotify" }]
+        var t = R.setRoute(R.emptyTable(), "spotify", bt, "BT"), s = [{ id: 10, uid: 10, key: "spotify" }]
         var r1 = R.plan(s, t, [dev(spk, "Speaker", true)], R.newPinState())
         compare(r1.ops, [])
         var r2 = R.plan(s, t, [dev(spk, "Speaker", true), dev(bt, "BT", true)], r1.st)
-        compare(r2.ops, [{ op: "pin", id: 10, device: bt }])
+        compare(r2.ops, [{ op: "pin", id: 10, uid: 10, device: bt }])
     }
     function test_plan_repins_on_return() {
-        var t = R.setRoute(R.emptyTable(), "spotify", bt, "BT"), s = [{ id: 10, key: "spotify" }]
+        var t = R.setRoute(R.emptyTable(), "spotify", bt, "BT"), s = [{ id: 10, uid: 10, key: "spotify" }]
         var on = [dev(bt, "BT", true)], off = []
         var r1 = R.plan(s, t, on, R.newPinState())
         var r2 = R.plan(s, t, off, r1.st)
         compare(r2.ops, [])
         var r3 = R.plan(s, t, on, r2.st)
-        compare(r3.ops, [{ op: "pin", id: 10, device: bt }])
+        compare(r3.ops, [{ op: "pin", id: 10, uid: 10, device: bt }])
         compare(R.plan(s, t, on, r3.st).ops, [])
     }
     function test_plan_switch_device_repins() {
-        var d = [dev(spk, "Speaker", true), dev(bt, "BT", true)], s = [{ id: 10, key: "spotify" }]
+        var d = [dev(spk, "Speaker", true), dev(bt, "BT", true)], s = [{ id: 10, uid: 10, key: "spotify" }]
         var r1 = R.plan(s, R.setRoute(R.emptyTable(), "spotify", bt, "BT"), d, R.newPinState())
         var r2 = R.plan(s, R.setRoute(R.emptyTable(), "spotify", spk, "Speaker"), d, r1.st)
-        compare(r2.ops, [{ op: "pin", id: 10, device: spk }])
+        compare(r2.ops, [{ op: "pin", id: 10, uid: 10, device: spk }])
     }
     function test_plan_unpin_while_absent() {
-        var t = R.setRoute(R.emptyTable(), "spotify", bt, "BT"), s = [{ id: 10, key: "spotify" }]
+        var t = R.setRoute(R.emptyTable(), "spotify", bt, "BT"), s = [{ id: 10, uid: 10, key: "spotify" }]
         var r1 = R.plan(s, t, [dev(bt, "BT", true)], R.newPinState())
         var r2 = R.plan(s, R.clearRoute(t, "spotify"), [], r1.st)
-        compare(r2.ops, [{ op: "unpin", id: 10 }])
+        compare(r2.ops, [{ op: "unpin", id: 10, uid: 10 }])
         compare(r2.st.pinned, {})
     }
     function test_plan_unpins_stale_pin_to_other_absent_device() {
-        var d = [dev(spk, "Speaker", true), dev(bt, "BT", true)], s = [{ id: 10, key: "spotify" }]
+        var d = [dev(spk, "Speaker", true), dev(bt, "BT", true)], s = [{ id: 10, uid: 10, key: "spotify" }]
         var r1 = R.plan(s, R.setRoute(R.emptyTable(), "spotify", spk, "Speaker"), d, R.newPinState())
         var r2 = R.plan(s, R.setRoute(R.emptyTable(), "spotify", bt, "BT"), [dev(spk, "Speaker", true)], r1.st)
-        compare(r2.ops, [{ op: "unpin", id: 10 }])
+        compare(r2.ops, [{ op: "unpin", id: 10, uid: 10 }])
         compare(r2.st.pinned, {})
     }
     function test_plan_forgets_vanished_streams() {
         var t = R.setRoute(R.emptyTable(), "spotify", bt, "BT"), d = [dev(bt, "BT", true)]
-        var r1 = R.plan([{ id: 10, key: "spotify" }], t, d, R.newPinState())
+        var r1 = R.plan([{ id: 10, uid: 10, key: "spotify" }], t, d, R.newPinState())
         compare(R.plan([], t, d, r1.st).st.pinned, {})
     }
     function test_unavailable_counts_as_unplugged() {
         var t = R.setRoute(R.emptyTable(), "mpv", spk, "Speaker")
         var d = [dev(spk, "Speaker", false)]
-        compare(R.plan([{ id: 3, key: "mpv" }], t, d, R.newPinState()).ops, [])
+        compare(R.plan([{ id: 3, uid: 3, key: "mpv" }], t, d, R.newPinState()).ops, [])
         compare(R.chip(R.routeFor(t, "mpv"), d), { text: "→ Speaker · unplugged", kind: "unplugged" })
         var rows = R.outputRows(R.routeFor(t, "mpv"), d, 0.5)
         compare(rows.length, 1)
@@ -131,5 +131,33 @@ TestCase {
         compare(rows[1].level, -1)
         verify(rows[1].glyph !== "")
         compare(R.rowsSig(rows), spk + "\n" + bt)
+    }
+
+    // --- final-review fixes
+    function test_plan_unpin_after_restart_while_absent() {
+        // quill restarted (empty pin state) while the pinned device is away:
+        // the stream's metadata may still name it, so a clear must unpin.
+        var t = R.setRoute(R.emptyTable(), "spotify", bt, "BT"), s = [{ id: 10, uid: 10, key: "spotify" }]
+        var r1 = R.plan(s, t, [], R.newPinState())
+        compare(r1.ops, [])
+        compare(R.plan(s, R.clearRoute(t, "spotify"), [], r1.st).ops, [{ op: "unpin", id: 10, uid: 10 }])
+    }
+    function test_plan_unpins_when_pinned_port_becomes_unavailable() {
+        // A present-but-unavailable port keeps its links (WirePlumber doesn't
+        // fall back), so quill unpins, then re-pins when it is usable again.
+        var t = R.setRoute(R.emptyTable(), "mpv", spk, "Speaker"), s = [{ id: 3, uid: 3, key: "mpv" }]
+        var r1 = R.plan(s, t, [dev(spk, "Speaker", true)], R.newPinState())
+        var r2 = R.plan(s, t, [dev(spk, "Speaker", false)], r1.st)
+        compare(r2.ops, [{ op: "unpin", id: 3, uid: 3 }])
+        compare(R.plan(s, t, [dev(spk, "Speaker", false)], r2.st).ops, [])
+        compare(R.plan(s, t, [dev(spk, "Speaker", true)], r2.st).ops, [{ op: "pin", id: 3, uid: 3, device: spk }])
+    }
+    function test_plan_reused_id_new_uid_pins() {
+        // PipeWire reuses node ids: a new stream (new serial) on an old id
+        // is a new stream and gets pinned.
+        var t = R.setRoute(R.emptyTable(), "spotify", bt, "BT"), d = [dev(bt, "BT", true)]
+        var r1 = R.plan([{ id: 87, uid: 1, key: "spotify" }], t, d, R.newPinState())
+        compare(R.plan([{ id: 87, uid: 2, key: "spotify" }], t, d, r1.st).ops,
+                [{ op: "pin", id: 87, uid: 2, device: bt }])
     }
 }

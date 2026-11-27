@@ -10,10 +10,13 @@
 //          (shown while the device is away). No route = follow default.
 // Devices: AudioService.outputs entries { name, label, glyph, isDefault,
 //          available } (audiodevices.js buildList).
-// Streams: [{ id, key }], id = PipeWire node id, key = mixer group key.
-// PinState { pinned: { <streamId>: device }, absent: { device: true } }:
-//          what quill has pinned, and which routed devices were unusable at
-//          the last plan (so their return triggers a re-pin).
+// Streams: [{ id, uid, key }], id = PipeWire node id (the pw-metadata
+//          subject), uid = its object.serial (ids are reused, serials never
+//          are), key = mixer group key. Ops carry both.
+// PinState { pinned: { <uid>: device }, absent: { device: true } }: which
+//          streams may carry a target (pinned by quill, or — after a quill
+//          restart — possibly still pinned from before), and which routed
+//          devices were unusable at the last plan (their return re-pins).
 // Every function returns new objects and never mutates its inputs.
 
 var VERSION = 1
@@ -75,6 +78,13 @@ function usable(devices, name) {
 function newPinState() { return { pinned: {}, absent: {} } }
 
 // Which pw-metadata ops bring the streams in line with the table.
+//  - no route: unpin anything that may carry a target;
+//  - device missing: keep the target (WirePlumber plays the stream on the
+//    default and moves it back on return), but remember it may be pinned so
+//    a later clear still unpins — also right after a quill restart;
+//  - device present but its port unavailable: unpin (WirePlumber would keep
+//    the stream linked to the dead port), re-pin once it is usable;
+//  - device usable: pin if not pinned there, or if it was unusable before.
 function plan(streams, table, devices, st) {
     var ops = [], pinned = {}, absent = {}
     var prev = st || newPinState()
@@ -82,16 +92,20 @@ function plan(streams, table, devices, st) {
         var s = streams[i]
         var r = routeFor(table, s.key)
         var want = r ? r.device : ""
-        var have = prev.pinned[s.id] || ""
+        var have = prev.pinned[s.uid] || ""
+        var d = want ? _find(devices, want) : null
         if (want === "") {
-            if (have) ops.push({ op: "unpin", id: s.id })
-        } else if (!usable(devices, want)) {
+            if (have) ops.push({ op: "unpin", id: s.id, uid: s.uid })
+        } else if (!d) {
             absent[want] = true
-            if (have && have !== want) ops.push({ op: "unpin", id: s.id })
-            else if (have) pinned[s.id] = have
+            if (have && have !== want) ops.push({ op: "unpin", id: s.id, uid: s.uid })
+            else pinned[s.uid] = want
+        } else if (d.available === false) {
+            absent[want] = true
+            if (have) ops.push({ op: "unpin", id: s.id, uid: s.uid })
         } else {
-            if (have !== want || prev.absent[want]) ops.push({ op: "pin", id: s.id, device: want })
-            pinned[s.id] = want
+            if (have !== want || prev.absent[want]) ops.push({ op: "pin", id: s.id, uid: s.uid, device: want })
+            pinned[s.uid] = want
         }
     }
     return { ops: ops, st: { pinned: pinned, absent: absent } }

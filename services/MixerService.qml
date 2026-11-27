@@ -120,15 +120,24 @@ Singleton {
     // Planner: any change to streams, routes or device availability re-plans
     // after a short debounce (never from an onChanged of its own inputs).
     property var _pinState: R.newPinState()
-    readonly property string _planSig: groups.map(g => g.streams.map(s => s.id + ":" + g.key).join(",")).join(",")
+    // object.serial: PipeWire reuses node ids, serials are never reused, so
+    // a new stream on a recycled id still counts as new.
+    function _serial(id) {
+        const n = _node(id)
+        return n && n.properties ? _str(n.properties["object.serial"]) : ""
+    }
+    readonly property var _planStreams: {
+        const out = []
+        groups.forEach(g => g.streams.forEach(s => out.push({ id: s.id, uid: root._serial(s.id) || ("id" + s.id), key: g.key })))
+        return out
+    }
+    readonly property string _planSig: _planStreams.map(s => s.uid + ":" + s.key).join(",")
         + "|" + R.serialize(routeTable)
         + "|" + _outputs.map(o => o.name + ":" + o.available).join(",")
     on_PlanSigChanged: planTimer.restart()
     Timer { id: planTimer; interval: 150; onTriggered: root._runPlan() }
     function _runPlan() {
-        const streams = []
-        groups.forEach(g => g.streams.forEach(s => streams.push({ id: s.id, key: g.key })))
-        const r = R.plan(streams, routeTable, _outputs, _pinState)
+        const r = R.plan(_planStreams, routeTable, _outputs, _pinState)
         _pinState = r.st
         r.ops.forEach(op => _enqueue(op))
     }
@@ -138,13 +147,20 @@ Singleton {
     property var _queue: []
     property var _current: null
     function _enqueue(op) {
-        _queue = _queue.filter(q => q.id !== op.id).concat([op])
+        _queue = _queue.filter(q => q.uid !== op.uid).concat([op])
         _next()
     }
     function _next() {
-        if (_current || _queue.length === 0) return
-        const op = _queue[0]
-        _queue = _queue.slice(1)
+        if (_current) return
+        // Skip ops whose stream is gone, or whose id now belongs to a newer
+        // stream (the planner sees that one separately).
+        let op = null
+        while (_queue.length > 0 && !op) {
+            const q = _queue[0]
+            _queue = _queue.slice(1)
+            if (_node(q.id) && (_serial(q.id) || ("id" + q.id)) === q.uid) op = q
+        }
+        if (!op) return
         _current = op
         pinProc.command = op.op === "pin"
             ? ["pw-metadata", String(op.id), "target.object", op.device]
@@ -161,7 +177,7 @@ Singleton {
                 // Forget a failed pin so the next plan retries it (no timer retries).
                 if (op.op === "pin" && root._node(op.id)) {
                     const pinned = Object.assign({}, root._pinState.pinned)
-                    delete pinned[op.id]
+                    delete pinned[op.uid]
                     root._pinState = { pinned: pinned, absent: root._pinState.absent }
                 }
             }
