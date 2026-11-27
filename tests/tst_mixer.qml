@@ -235,4 +235,30 @@ TestCase {
         var g = M.buildGroups([rec({ id: 7 })], M.newOrderState())
         compare(g[0].iconCandidates, [])
     }
+
+    // --- routable groups (#20)
+    function test_keySource_branches() {
+        compare(M.keySource(rec({ id: 1, binary: "spotify" })), "binary")
+        compare(M.keySource(rec({ id: 2, appName: "PipeWire ALSA [someplayer-bin]" })), "alsa")
+        compare(M.keySource(rec({ id: 3, appName: "Some App" })), "appName")
+        compare(M.keySource(rec({ id: 4, nodeName: "some.node" })), "nodeName")
+        compare(M.keySource(rec({ id: 5 })), "id")
+    }
+    function test_isRoutableSource() {
+        verify(M.isRoutableSource("binary"))
+        verify(M.isRoutableSource("alsa"))
+        verify(M.isRoutableSource("appName"))
+        verify(!M.isRoutableSource("nodeName"))
+        verify(!M.isRoutableSource("id"))
+    }
+    function test_group_routable_flag() {
+        var g = M.buildGroups([rec({ id: 1, binary: "spotify" }), rec({ id: 2, nodeName: "x.node" }),
+                               rec({ id: 3 })], M.newOrderState())
+        compare(g.map(function (x) { return x.routable }), [true, false, false])
+    }
+    function test_showFoldout_routable_single_stream() {
+        var one = { routable: true, streams: [{ id: 1, label: "Stream 1", meaningful: false }] }
+        verify(M.showFoldout(one, "cards"))
+        verify(M.showFoldout(one, "rows"))
+    }
 }

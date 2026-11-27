@@ -6,7 +6,8 @@
 // Record: { id, mediaClass, binary, appName, iconName, mediaName,
 //           description, nodeName, volume, muted } — missing strings are "".
 // Group:  { key, name, subtitle, iconName, iconCandidates,
-//           streams: [{ id, label, meaningful, volume, muted }], volume, muted }
+//           streams: [{ id, label, meaningful, volume, muted }], routable,
+//           volume, muted } — routable: the key is stable enough to route.
 //
 // buildGroups() MUTATES the order state in place (assigns first-seen
 // sequence numbers, prunes what disappeared). Callers keep one state object
@@ -50,8 +51,27 @@ function iconCandidates(rec) {
     return out
 }
 
+// Which property produced the group key. Only stable sources (the binary,
+// the ALSA-unwrapped binary, the app name) can carry a per-app route (#20);
+// node names and stream ids change between runs.
+function keySource(rec) {
+    if (rec.binary) return "binary"
+    if (alsaBinary(rec)) return "alsa"
+    if (rec.appName) return "appName"
+    if (rec.nodeName) return "nodeName"
+    return "id"
+}
+
+function isRoutableSource(src) { return src === "binary" || src === "alsa" || src === "appName" }
+
 function groupKey(rec) {
-    return rec.binary || alsaBinary(rec) || rec.appName || rec.nodeName || ("stream-" + rec.id)
+    switch (keySource(rec)) {
+    case "binary": return rec.binary
+    case "alsa": return alsaBinary(rec)
+    case "appName": return rec.appName
+    case "nodeName": return rec.nodeName
+    default: return "stream-" + rec.id
+    }
 }
 
 function displayName(rec) {
@@ -89,9 +109,12 @@ function subtitleFor(key, streams) {
     return ""
 }
 
-// Per-stream rows: cards fold out for 2+ streams (a single title is the
-// subtitle); rows have no subtitle, so a single titled stream folds out too.
+// Fold-out: every routable group folds out (its Outputs section, #20).
+// Otherwise per-stream rows only: cards fold out for 2+ streams (a single
+// title is the subtitle); rows have no subtitle, so a single titled stream
+// folds out too.
 function showFoldout(group, layout) {
+    if (group && group.routable) return true
     var n = group && group.streams ? group.streams.length : 0
     if (n > 1) return true
     return layout === "rows" && n === 1 && !!group.streams[0].meaningful
@@ -179,6 +202,7 @@ function buildGroups(records, state, now) {
         })
         out.push({ key: key, name: name, subtitle: subtitleFor(key, streams), iconName: icon,
                    iconCandidates: cands, streams: streams,
+                   routable: isRoutableSource(keySource(recs[0])),
                    volume: groupVolume(streams), muted: groupMuted(streams) })
     }
     out.sort(function (a, b) { return state.groups[a.key].seq - state.groups[b.key].seq })
