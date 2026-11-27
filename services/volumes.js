@@ -125,11 +125,12 @@ function outputMuted(state, name) {
     return !!(o && o.muted)
 }
 
-// One node with no outside change: decide what to write. Volume only when
-// quill's target moved (or the node has no `last`); mute always.
+// One node: decide what to write. Volume only when there was no outside
+// change and quill's target moved (or the node has no `last`); mute always.
 // Returns { write: { volume, muted } | null, last }.
-function _node(obs, last, target, targetMuted) {
-    var volWrite = Math.abs(obs.volume - target) >= SAME && (!last || Math.abs(target - last.target) >= SAME)
+function _node(obs, last, outside, target, targetMuted) {
+    var volWrite = !outside && Math.abs(obs.volume - target) >= SAME
+                   && (!last || Math.abs(target - last.target) >= SAME)
     var muteWrite = obs.muted !== targetMuted
     var write = volWrite || muteWrite ? { volume: volWrite ? target : obs.volume, muted: targetMuted } : null
     return { write: write, last: { volume: volWrite ? target : obs.volume, muted: targetMuted, target: target } }
@@ -154,11 +155,7 @@ function _outputs(st, se, devices) {
             if (outside && master.level > 0) o.level = _clamp01(dv.volume / master.level)
             if (dv.muted !== last.muted) o.muted = dv.muted
         }
-        var target = master.level * o.level
-        var r = outside ? { write: dv.muted !== (master.muted || o.muted)
-                                    ? { volume: dv.volume, muted: master.muted || o.muted } : null,
-                            last: { volume: dv.volume, muted: master.muted || o.muted, target: target } }
-                        : _node(dv, last, target, master.muted || o.muted)
+        var r = _node(dv, last, outside, master.level * o.level, master.muted || o.muted)
         if (r.write) writes.push({ name: dv.name, volume: r.write.volume, muted: r.write.muted })
         lastOut[dv.name] = r.last
     }
@@ -166,8 +163,98 @@ function _outputs(st, se, devices) {
     return writes
 }
 
+// --- apps and tabs
+
+function setApp(state, session, key, v) {
+    var st = _copy(state), se = _copy(session)
+    st.apps[key] = { level: _clamp01(v) }
+    delete se.appMuted[key]
+    return { state: st, session: se }
+}
+
+function toggleAppMute(session, key) {
+    var se = _copy(session)
+    se.appMuted[key] = !se.appMuted[key]
+    return se
+}
+
+function setTab(session, uid, v) {
+    var se = _copy(session)
+    se.tabs[uid] = { level: _clamp01(v), muted: false }
+    return se
+}
+
+function toggleTabMute(session, uid) {
+    var se = _copy(session)
+    var t = se.tabs[uid] || { level: 1, muted: false }
+    se.tabs[uid] = { level: t.level, muted: !t.muted }
+    return se
+}
+
+function appLevel(state, key) {
+    var a = state.apps[key]
+    return a ? a.level : 1
+}
+
+function appMuted(session, key) { return !!session.appMuted[key] }
+
+function tabLevel(session, uid) {
+    var t = session.tabs[uid]
+    return t ? t.level : 1
+}
+
+function tabMuted(session, uid) {
+    var t = session.tabs[uid]
+    return !!(t && t.muted)
+}
+
+// First-seen app: its level is its loudest stream and each tab keeps its
+// share, so the current mix doesn't change. A known app's new stream starts
+// at tab 100% (it plays at the app level).
+function _streams(st, se, streams) {
+    var writes = [], lastS = {}, tabs = {}, byKey = {}
+    var list = (streams || []).slice().sort(function (a, b) { return a.id - b.id })
+    list.forEach(function (x) { (byKey[x.key] = byKey[x.key] || []).push(x) })
+    for (var key in byKey) {
+        if (st.apps[key]) continue
+        var level = 0
+        byKey[key].forEach(function (x) { level = Math.max(level, x.volume) })
+        st.apps[key] = { level: _clamp01(level) }
+        byKey[key].forEach(function (x) {
+            se.tabs[x.uid] = { level: level > 0 ? _clamp01(x.volume / level) : 1, muted: x.muted }
+        })
+    }
+    for (var i = 0; i < list.length; i++) {
+        var x = list[i]
+        var app = st.apps[x.key]
+        var tab = se.tabs[x.uid]
+        var last = se.last.streams[x.uid]
+        var single = byKey[x.key].length === 1
+        var outside = false
+        if (!tab) {
+            tab = { level: 1, muted: false }
+        } else if (last) {
+            outside = _outside(x, last)
+            if (outside && single) { if (tab.level > 0) app.level = _clamp01(x.volume / tab.level) }
+            else if (outside && app.level > 0) tab.level = _clamp01(x.volume / app.level)
+            if (x.muted !== last.muted) {
+                if (single) se.appMuted[x.key] = x.muted
+                else tab.muted = x.muted
+            }
+        }
+        tabs[x.uid] = tab
+        var r = _node(x, last, outside, app.level * tab.level, !!se.appMuted[x.key] || tab.muted)
+        if (r.write) writes.push({ id: x.id, uid: x.uid, volume: r.write.volume, muted: r.write.muted })
+        lastS[x.uid] = r.last
+    }
+    se.tabs = tabs
+    se.last.streams = lastS
+    return writes
+}
+
 function reconcile(state, session, devices, streams) {
     var st = _copy(state), se = _copy(session)
     var outWrites = _outputs(st, se, devices)
-    return { state: st, session: se, writes: { outputs: outWrites, streams: [] } }
+    var streamWrites = _streams(st, se, streams)
+    return { state: st, session: se, writes: { outputs: outWrites, streams: streamWrites } }
 }
