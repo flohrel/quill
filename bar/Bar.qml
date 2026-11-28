@@ -21,6 +21,12 @@ PanelWindow {
 
     OverlayController { id: overlay }
 
+    // Volume layers (#22) must run from launch, not from the first time a
+    // volume view opens: new streams start at their app's level, outside
+    // changes are read back, and the `audio` IPC target is live. A singleton
+    // starts on first reference, so reference it here.
+    readonly property bool _volumeLayersLive: VolumeService.masterLevel >= 0
+
     // Caffeine: while CaffeineService.active, hold an idle inhibitor on this
     // always-visible bar surface. niri then reports the seat inhibited and stops
     // its ext-idle-notify-v1 stream, so swayidle's dim/lock/power-off timeouts

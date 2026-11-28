@@ -9,7 +9,9 @@ import "routing.js" as R
 
 // Per-app mixer backend (#18). Maps PipeWire stream nodes to plain records
 // and hands them to the pure grouping logic in mixer.js. The UI binds only
-// to `groups` and the setters below — never to PipeWire nodes.
+// to `groups` and the routing functions below — never to PipeWire nodes.
+// Volume and mute live in VolumeService (#22), which writes streams through
+// writeStream().
 // Per-app output routing (#20): a route table (routing.js) persisted in
 // ~/.local/state/quill/routes.json; streams of a routed app are pinned with
 // `pw-metadata <id> target.object <node.name>`. While a pinned device is
@@ -56,28 +58,6 @@ Singleton {
         return groups.find(g => g.key === key) || null
     }
 
-    // Dragging a slider means "I want sound": setting a volume also clears
-    // that stream's mute (#72). setGroupVolume goes through here.
-    function setStreamVolume(id, v) {
-        const n = _node(id)
-        if (!n) return
-        n.audio.volume = M.clamp01(v)
-        if (n.audio.muted) n.audio.muted = false
-    }
-    function setGroupVolume(key, v) {
-        const g = _group(key)
-        if (g) g.streams.forEach(s => setStreamVolume(s.id, v))
-    }
-    function toggleStreamMute(id) {
-        const n = _node(id)
-        if (n) n.audio.muted = !n.audio.muted
-    }
-    function toggleGroupMute(key) {
-        const g = _group(key)
-        if (!g) return
-        const target = !g.muted
-        g.streams.forEach(s => { const n = _node(s.id); if (n) n.audio.muted = target })
-    }
     // --- Per-app output routing (#20)
     readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/quill"
     // Reassigned on every change, never mutated (routing.js returns copies).
@@ -115,13 +95,35 @@ Singleton {
         const name = R.defaultOutput(_outputs)
         if (name !== "") pinOutput(key, name)
     }
-    // A row's slider: on the pinned device it is the app volume; raising an
-    // "off" device pins the app there at the dragged level.
-    function setOutputLevel(key, name, v) {
-        if (_pinnedTo(key, name)) { setGroupVolume(key, v); return }
-        if (v <= 0) return
-        pinOutput(key, name)
-        if (_pinnedTo(key, name)) setGroupVolume(key, v)
+    function isPinnedTo(key, name) { return _pinnedTo(key, name) }
+
+    // --- For VolumeService (#22): every live playback stream with its
+    // group key and serial (uid), only once the node's volume is known
+    // (ready, channels reported); a raw writer that never
+    // unmutes on its own; and the devices live pinned apps play on.
+    readonly property var streamRefs: {
+        const out = []
+        groups.forEach(g => g.streams.forEach(s => {
+            const n = root._node(s.id)
+            if (n && n.ready && n.audio && n.audio.channels.length > 0)
+                out.push({ id: s.id, uid: root._serial(s.id) || ("id" + s.id), key: g.key,
+                           volume: s.volume, muted: s.muted })
+        }))
+        return out
+    }
+    function writeStream(id, volume, muted) {
+        const n = _node(id)
+        if (!n) return
+        n.audio.volume = M.clamp01(volume)
+        n.audio.muted = !!muted
+    }
+    readonly property var liveRouteDevices: {
+        const out = {}
+        groups.forEach(g => {
+            const r = g.routable ? R.routeFor(routeTable, g.key) : null
+            if (r && R.usable(_outputs, r.device)) out[r.device] = true
+        })
+        return out
     }
 
     // Planner: any change to streams, routes or device availability re-plans
