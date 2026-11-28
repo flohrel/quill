@@ -98,13 +98,14 @@ Singleton {
     function isPinnedTo(key, name) { return _pinnedTo(key, name) }
 
     // --- For VolumeService (#22): every live playback stream with its
-    // group key and serial (uid), ready nodes only; a raw writer that never
+    // group key and serial (uid), only once the node's volume is known
+    // (ready, channels reported); a raw writer that never
     // unmutes on its own; and the devices live pinned apps play on.
     readonly property var streamRefs: {
         const out = []
         groups.forEach(g => g.streams.forEach(s => {
             const n = root._node(s.id)
-            if (n && n.ready)
+            if (n && n.ready && n.audio && n.audio.channels.length > 0)
                 out.push({ id: s.id, uid: root._serial(s.id) || ("id" + s.id), key: g.key,
                            volume: s.volume, muted: s.muted })
         }))

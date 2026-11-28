@@ -137,9 +137,11 @@ TestCase {
         compare(r.writes.streams, [])
     }
     function test_first_seen_app_all_zero() {
+        // Like outputs under a master at 0: an app first seen silent starts
+        // at 100%, so later streams of it aren't forced silent forever.
         var r = runS(V.emptyState(), V.newSession(), [s(1, "u1", "ff", 0, false), s(2, "u2", "ff", 0, false)])
-        compare(r.state.apps.ff.level, 0)
-        compare(V.tabLevel(r.session, "u1"), 1)
+        compare(r.state.apps.ff.level, 1)
+        compare(V.tabLevel(r.session, "u1"), 0)
         compare(r.writes.streams, [])
     }
     function test_app_scales_tabs_keeps_balance() {
@@ -218,5 +220,67 @@ TestCase {
         compare(j.apps.ff.level, 0.6)
         verify(!("tabs" in j))
         verify(!("appMuted" in j))
+    }
+
+    // --- final-review fixes
+    // A stale server echo of an earlier drag value (Quickshell updates its
+    // local value at once, the acknowledgement comes later) is an echo, not
+    // an outside change.
+    function test_stale_echo_during_master_drag_is_ignored() {
+        var r = V.reconcile(V.emptyState(), V.newSession(), [d(spk, 0.8, false)], [], 0)
+        var r1 = V.reconcile(V.setMaster(r.state, 0.9), r.session, [d(spk, 0.8, false)], [], 10)
+        fuzzyCompare(w(r1, spk).volume, 0.72, 1e-9)
+        var r2 = V.reconcile(V.setMaster(r1.state, 0.8), r1.session, [d(spk, 0.72, false)], [], 20)
+        fuzzyCompare(w(r2, spk).volume, 0.64, 1e-9)
+        var stale = V.reconcile(r2.state, r2.session, [d(spk, 0.72, false)], [], 30)
+        fuzzyCompare(stale.state.outputs[spk].level, 0.8, 1e-9)
+        compare(stale.writes.outputs, [])
+        var r3 = V.reconcile(V.setMaster(stale.state, 0.7), stale.session, [d(spk, 0.72, false)], [], 40)
+        fuzzyCompare(w(r3, spk).volume, 0.56, 1e-9)
+        fuzzyCompare(r3.state.outputs[spk].level, 0.8, 1e-9)
+    }
+    function test_old_write_outside_window_is_outside() {
+        var r = V.reconcile(V.emptyState(), V.newSession(), [d(spk, 0.8, false)], [], 0)
+        var r1 = V.reconcile(V.setMaster(r.state, 0.9), r.session, [d(spk, 0.8, false)], [], 10)
+        var r2 = V.reconcile(V.setMaster(r1.state, 0.8), r1.session, [d(spk, 0.72, false)], [], 20)
+        var later = V.reconcile(r2.state, r2.session, [d(spk, 0.72, false)], [], 20 + V.RECENT_MS + 1)
+        fuzzyCompare(later.state.outputs[spk].level, 0.9, 1e-9)
+        verify(!("o:" + spk in later.session.recent) || later.session.recent["o:" + spk].length === 0)
+    }
+    function test_stale_echo_during_app_drag_keeps_tabs() {
+        var strs = function (a, b) { return [s(1, "u1", "ff", a, false), s(2, "u2", "ff", b, false)] }
+        var r = V.reconcile(V.emptyState(), V.newSession(), [], strs(1.0, 0.4), 0)
+        var a1 = V.setApp(r.state, r.session, "ff", 0.8)
+        var r1 = V.reconcile(a1.state, a1.session, [], strs(1.0, 0.4), 10)
+        var a2 = V.setApp(r1.state, r1.session, "ff", 0.6)
+        var r2 = V.reconcile(a2.state, a2.session, [], strs(0.8, 0.32), 20)
+        var stale = V.reconcile(r2.state, r2.session, [], strs(0.6, 0.32), 30)
+        fuzzyCompare(V.tabLevel(stale.session, "u2"), 0.4, 1e-9)
+    }
+    // quill restarting must not touch audio that is already playing.
+    function test_restart_adopts_running_streams() {
+        var st = V.setApp(V.emptyState(), V.newSession(), "ff", 0.5).state
+        var se = V.newSession(0)
+        var r = V.reconcile(st, se, [], [s(1, "u1", "ff", 0.5, false), s(2, "u2", "ff", 0.2, false)], 100)
+        compare(V.tabLevel(r.session, "u1"), 1)
+        fuzzyCompare(V.tabLevel(r.session, "u2"), 0.4, 1e-9)
+        compare(r.writes.streams, [])
+        var later = V.reconcile(r.state, r.session, [], [s(1, "u1", "ff", 0.5, false), s(2, "u2", "ff", 0.2, false),
+                                                         s(3, "u3", "ff", 0.9, false)], V.STARTUP_GRACE_MS + 1)
+        compare(V.tabLevel(later.session, "u3"), 1)
+        compare(later.writes.streams, [{ id: 3, uid: "u3", volume: 0.5, muted: false }])
+    }
+    // An app dropping to one stream: the hidden tab's level and mute fold
+    // into the app layer (audibly unchanged), so the app's controls reach it.
+    function test_single_stream_folds_hidden_tab_layers() {
+        var r = runS(V.emptyState(), V.newSession(), [s(1, "u1", "ff", 0.5, false), s(2, "u2", "ff", 0.5, false)])
+        var se = V.toggleTabMute(V.setTab(r.session, "u2", 0.4), "u2")
+        var r1 = runS(r.state, se, [s(1, "u1", "ff", 0.5, false), s(2, "u2", "ff", 0.2, true)])
+        var r2 = runS(r1.state, r1.session, [s(2, "u2", "ff", 0.2, true)])
+        fuzzyCompare(V.appLevel(r2.state, "ff"), 0.2, 1e-9)
+        compare(V.tabLevel(r2.session, "u2"), 1)
+        verify(!V.tabMuted(r2.session, "u2"))
+        verify(V.appMuted(r2.session, "ff"))
+        compare(r2.writes.streams, [])
     }
 }

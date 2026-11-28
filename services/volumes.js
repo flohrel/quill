@@ -35,6 +35,15 @@
 var VERSION = 1
 var ECHO = 0.01
 var SAME = 1e-3
+// quill's own writes stay "recent" this long: PipeWire can report an older
+// drag value after a newer one (Quickshell updates its local value at once,
+// the server's acknowledgement of an earlier write arrives later), and that
+// stale value must count as an echo, not an outside change.
+var RECENT_MS = 1000
+// Streams already playing when quill starts (restart, hot reload) are
+// adopted as they are; only streams created after this window start at
+// tab 100%.
+var STARTUP_GRACE_MS = 3000
 
 function _clamp01(v) { return Math.max(0, Math.min(1, v)) }
 function _isNum(v) { return typeof v === "number" && isFinite(v) }
@@ -45,8 +54,10 @@ function emptyState() {
     return { version: VERSION, master: { level: 1, muted: false }, outputs: {}, apps: {} }
 }
 
-function newSession() {
-    return { appMuted: {}, tabs: {}, last: { outputs: {}, streams: {} } }
+// startedAt (ms, optional): when quill started; enables the startup grace.
+function newSession(startedAt) {
+    return { appMuted: {}, tabs: {}, last: { outputs: {}, streams: {} }, recent: {},
+             startedAt: startedAt === undefined ? null : startedAt }
 }
 
 // Never throws: anything unreadable is an empty state; bad entries drop.
@@ -127,18 +138,46 @@ function outputMuted(state, name) {
 
 // One node: decide what to write. Volume only when there was no outside
 // change and quill's target moved (or the node has no `last`); mute always.
+// A stale echo leaves `last.volume` at what quill expects.
 // Returns { write: { volume, muted } | null, last }.
-function _node(obs, last, outside, target, targetMuted) {
-    var volWrite = !outside && Math.abs(obs.volume - target) >= SAME
+function _node(obs, last, seen, target, targetMuted) {
+    var volWrite = !seen.outside && Math.abs(obs.volume - target) >= SAME
                    && (!last || Math.abs(target - last.target) >= SAME)
     var muteWrite = obs.muted !== targetMuted
     var write = volWrite || muteWrite ? { volume: volWrite ? target : obs.volume, muted: targetMuted } : null
-    return { write: write, last: { volume: volWrite ? target : obs.volume, muted: targetMuted, target: target } }
+    var lastVol = volWrite ? target : (seen.stale ? last.volume : obs.volume)
+    return { write: write, last: { volume: lastVol, muted: targetMuted, target: target } }
 }
 
-function _outside(obs, last) { return !!last && Math.abs(obs.volume - last.volume) >= ECHO }
+// How an observation relates to quill's writes: an echo of the last one, a
+// stale echo of a recent one, or an outside change (volume / mute).
+function _seen(obs, last, recent) {
+    var out = { outside: false, stale: false, muteOutside: false }
+    if (!last) return out
+    if (Math.abs(obs.volume - last.volume) >= ECHO) {
+        if (recent.some(function (r) { return Math.abs(obs.volume - r.volume) < ECHO })) out.stale = true
+        else out.outside = true
+    }
+    out.muteOutside = obs.muted !== last.muted && !recent.some(function (r) { return r.muted === obs.muted })
+    return out
+}
 
-function _outputs(st, se, devices) {
+function _recent(se, key) { return se.recent[key] || [] }
+function _remember(se, key, write, now) {
+    (se.recent[key] = se.recent[key] || []).push({ volume: write.volume, muted: write.muted, at: now })
+}
+// Drop writes older than RECENT_MS and keys of nodes that are gone.
+function _pruneRecent(se, now, live) {
+    var out = {}
+    for (var k in se.recent) {
+        if (!live[k]) continue
+        var kept = se.recent[k].filter(function (r) { return now - r.at <= RECENT_MS })
+        if (kept.length) out[k] = kept
+    }
+    se.recent = out
+}
+
+function _outputs(st, se, devices, now) {
     var writes = [], lastOut = {}
     var master = st.master
     var devs = (devices || []).slice().sort(function (a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0) })
@@ -146,17 +185,19 @@ function _outputs(st, se, devices) {
         var dv = devs[i]
         var o = st.outputs[dv.name]
         var last = se.last.outputs[dv.name]
-        var outside = false
+        var seen = _seen(dv, last, _recent(se, "o:" + dv.name))
         if (!o) {
             o = { level: master.level > 0 ? _clamp01(dv.volume / master.level) : 1, muted: dv.muted }
             st.outputs[dv.name] = o
         } else if (last) {
-            outside = _outside(dv, last)
-            if (outside && master.level > 0) o.level = _clamp01(dv.volume / master.level)
-            if (dv.muted !== last.muted) o.muted = dv.muted
+            if (seen.outside && master.level > 0) o.level = _clamp01(dv.volume / master.level)
+            if (seen.muteOutside) o.muted = dv.muted
         }
-        var r = _node(dv, last, outside, master.level * o.level, master.muted || o.muted)
-        if (r.write) writes.push({ name: dv.name, volume: r.write.volume, muted: r.write.muted })
+        var r = _node(dv, last, seen, master.level * o.level, master.muted || o.muted)
+        if (r.write) {
+            writes.push({ name: dv.name, volume: r.write.volume, muted: r.write.muted })
+            _remember(se, "o:" + dv.name, r.write, now)
+        }
         lastOut[dv.name] = r.last
     }
     se.last.outputs = lastOut
@@ -211,7 +252,7 @@ function tabMuted(session, uid) {
 // First-seen app: its level is its loudest stream and each tab keeps its
 // share, so the current mix doesn't change. A known app's new stream starts
 // at tab 100% (it plays at the app level).
-function _streams(st, se, streams) {
+function _streams(st, se, streams, now) {
     var writes = [], lastS = {}, tabs = {}, byKey = {}
     var list = (streams || []).slice().sort(function (a, b) { return a.id - b.id })
     list.forEach(function (x) { (byKey[x.key] = byKey[x.key] || []).push(x) })
@@ -219,6 +260,9 @@ function _streams(st, se, streams) {
         if (st.apps[key]) continue
         var level = 0
         byKey[key].forEach(function (x) { level = Math.max(level, x.volume) })
+        // An app first seen silent starts at 100% (like an output under a
+        // master at 0), so it isn't saved — and later streams forced — at 0.
+        if (!(level > 0)) level = 1
         st.apps[key] = { level: _clamp01(level) }
         byKey[key].forEach(function (x) {
             se.tabs[x.uid] = { level: level > 0 ? _clamp01(x.volume / level) : 1, muted: x.muted }
@@ -230,21 +274,32 @@ function _streams(st, se, streams) {
         var tab = se.tabs[x.uid]
         var last = se.last.streams[x.uid]
         var single = byKey[x.key].length === 1
-        var outside = false
+        var seen = _seen(x, last, _recent(se, "s:" + x.uid))
         if (!tab) {
-            tab = { level: 1, muted: false }
+            var adopting = se.startedAt !== null && now - se.startedAt <= STARTUP_GRACE_MS
+            tab = adopting ? { level: app.level > 0 ? _clamp01(x.volume / app.level) : 1, muted: x.muted }
+                           : { level: 1, muted: false }
         } else if (last) {
-            outside = _outside(x, last)
-            if (outside && single) { if (tab.level > 0) app.level = _clamp01(x.volume / tab.level) }
-            else if (outside && app.level > 0) tab.level = _clamp01(x.volume / app.level)
-            if (x.muted !== last.muted) {
+            if (seen.outside && single) { if (tab.level > 0) app.level = _clamp01(x.volume / tab.level) }
+            else if (seen.outside && app.level > 0) tab.level = _clamp01(x.volume / app.level)
+            if (seen.muteOutside) {
                 if (single) se.appMuted[x.key] = x.muted
                 else tab.muted = x.muted
             }
         }
+        // One stream left: its tab has no row in the cards layout, so fold
+        // the tab's level and mute into the app layer (audibly unchanged).
+        if (single && (tab.level !== 1 || tab.muted)) {
+            app.level = _clamp01(app.level * tab.level)
+            if (tab.muted) se.appMuted[x.key] = true
+            tab = { level: 1, muted: false }
+        }
         tabs[x.uid] = tab
-        var r = _node(x, last, outside, app.level * tab.level, !!se.appMuted[x.key] || tab.muted)
-        if (r.write) writes.push({ id: x.id, uid: x.uid, volume: r.write.volume, muted: r.write.muted })
+        var r = _node(x, last, seen, app.level * tab.level, !!se.appMuted[x.key] || tab.muted)
+        if (r.write) {
+            writes.push({ id: x.id, uid: x.uid, volume: r.write.volume, muted: r.write.muted })
+            _remember(se, "s:" + x.uid, r.write, now)
+        }
         lastS[x.uid] = r.last
     }
     se.tabs = tabs
@@ -252,9 +307,17 @@ function _streams(st, se, streams) {
     return writes
 }
 
-function reconcile(state, session, devices, streams) {
+// now: ms timestamp of this pass (recent-write window, startup grace).
+function reconcile(state, session, devices, streams, now) {
+    if (now === undefined) now = 0
     var st = _copy(state), se = _copy(session)
-    var outWrites = _outputs(st, se, devices)
-    var streamWrites = _streams(st, se, streams)
+    if (!se.recent) se.recent = {}
+    if (se.startedAt === undefined) se.startedAt = null
+    var live = {}
+    ;(devices || []).forEach(function (x) { live["o:" + x.name] = true })
+    ;(streams || []).forEach(function (x) { live["s:" + x.uid] = true })
+    _pruneRecent(se, now, live)
+    var outWrites = _outputs(st, se, devices, now)
+    var streamWrites = _streams(st, se, streams, now)
     return { state: st, session: se, writes: { outputs: outWrites, streams: streamWrites } }
 }

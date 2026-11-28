@@ -17,7 +17,9 @@ Singleton {
     readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/quill"
     // Reassigned, never mutated (volumes.js returns copies).
     property var state: V.emptyState()
-    property var session: V.newSession()
+    // startedAt enables the startup grace: streams already playing when quill
+    // starts are adopted as they are.
+    property var session: V.newSession(Date.now())
 
     readonly property string defaultName: AudioService.sink ? String(AudioService.sink.name || "") : ""
     readonly property real masterLevel: state.master.level
@@ -78,39 +80,19 @@ Singleton {
         + MixerService.streamRefs.map(s => s.uid + ":" + s.key + ":" + s.volume.toFixed(3) + ":" + s.muted).join(",")
     on_SigChanged: Qt.callLater(root._reconcile)
 
-    // Writes quill just made, until PipeWire reports them back (or 1 s
-    // passes): a reconcile that runs in between must not read the old value
-    // as an outside change and undo the user's drag.
-    property var _pending: ({})
-    readonly property int pendingMs: 1000
-    function _observed(prefix, key, obs) {
-        const p = _pending[prefix + key]
-        if (!p) return obs
-        const arrived = Math.abs(obs.volume - p.volume) < V.ECHO && obs.muted === p.muted
-        if (arrived || Date.now() - p.at > pendingMs) {
-            delete _pending[prefix + key]
-            return obs
-        }
-        return Object.assign({}, obs, { volume: p.volume, muted: p.muted })
-    }
-
     function _reconcile() {
+        // Echoes of quill's own writes, stale ones included, are recognised
+        // inside V.reconcile (recent-write window), so observations go in raw.
         const lv = AudioService.outputLevels
-        const devices = Object.keys(lv).map(n => _observed("o:", n, { name: n, volume: lv[n].volume, muted: lv[n].muted }))
-        const streams = MixerService.streamRefs.map(s => _observed("s:", s.uid, s))
-        const r = V.reconcile(state, session, devices, streams)
+        const devices = Object.keys(lv).map(n => ({ name: n, volume: lv[n].volume, muted: lv[n].muted }))
+        const r = V.reconcile(state, session, devices, MixerService.streamRefs, Date.now())
         state = r.state
         session = r.session
-        const now = Date.now()
         r.writes.outputs.forEach(w => {
             AudioService.setOutputVolume(w.name, w.volume)
             AudioService.setOutputMuted(w.name, w.muted)
-            _pending["o:" + w.name] = { volume: w.volume, muted: w.muted, at: now }
         })
-        r.writes.streams.forEach(w => {
-            MixerService.writeStream(w.id, w.volume, w.muted)
-            _pending["s:" + w.uid] = { volume: w.volume, muted: w.muted, at: now }
-        })
+        r.writes.streams.forEach(w => MixerService.writeStream(w.id, w.volume, w.muted))
         const text = V.serialize(state)
         if (text !== _savedText) saveTimer.restart()
     }
